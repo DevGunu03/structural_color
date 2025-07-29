@@ -21,7 +21,7 @@ for t_val = start_thickness:gap:max_thickness
     thicknesses(2) = t_val;
     
     % Call TransferMatrix_Updated
-    Reflectance = TransferMatrix_Updated_multiple(layers, thicknesses, lambda_range, incl); 
+    Reflectance = TransferMatrix_multiple(layers, thicknesses, lambda_range, incl); 
 
     % Prepare data to save
     output_data = [lambda_range(:), Reflectance(:)];
