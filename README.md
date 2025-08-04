@@ -43,6 +43,6 @@ The next two codes titled *2_makes_colorbar_packing.ipynb* and *3_makes_colorbar
 
 The filename should be of the type **PS_300nm4** or **PS_300nm** for former and latter files. The first number *300nm* suggests the thickness while the second number for *2_makes_colorbar_packing.ipynb* suggests packing, in percentage. IN step 5 for both the files, the user can modify the ticks for each files to be shown and how the final image generated should look. Both the files eventually store the images in *.png* format in the folder where the code resides.
 <p align="center">
-  <img width="300" height="34" alt="image09" src="https://github.com/user-attachments/assets/5d76e175-45a5-4536-95de-2f04a20171c1" />
-  <img width="288" height="33" alt="image05" src="https://github.com/user-attachments/assets/1ce3c42e-d4e7-4336-9583-f021371489df" />
+  <img width="600" height="68" alt="image09" src="https://github.com/user-attachments/assets/5d76e175-45a5-4536-95de-2f04a20171c1" />
+  <img width="600" height="68" alt="image05" src="https://github.com/user-attachments/assets/1ce3c42e-d4e7-4336-9583-f021371489df" />
 </p>
