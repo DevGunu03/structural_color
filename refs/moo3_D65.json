@@ -1,0 +1,24 @@
+{
+  "stack": "Air | aMoO3 (t) | SiO2-Franta 100.0 nm | Si-Franta",
+  "illuminant": "D65",
+  "NA": 0.0,
+  "t_max": 600.0,
+  "step": 1.0,
+  "system": "MoO3",
+  "columns": [
+    "thickness_nm",
+    "X",
+    "Y",
+    "Z",
+    "Jp",
+    "ap",
+    "bp",
+    "L",
+    "a",
+    "b",
+    "sR",
+    "sG",
+    "sB",
+    "dE_substrate"
+  ]
+}

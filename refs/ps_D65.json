@@ -1,0 +1,26 @@
+{
+  "stack": "Air | PS-beads layers (d=300.0 nm, model=slab) | SiO2-Franta 100.0 nm | Si-Franta",
+  "illuminant": "D65",
+  "NA": 0.0,
+  "max_layers": 5,
+  "packing_step": 0.01,
+  "system": "PS",
+  "columns": [
+    "layers",
+    "packing",
+    "eff_layers",
+    "X",
+    "Y",
+    "Z",
+    "Jp",
+    "ap",
+    "bp",
+    "L",
+    "a",
+    "b",
+    "sR",
+    "sG",
+    "sB",
+    "dE_substrate"
+  ]
+}
