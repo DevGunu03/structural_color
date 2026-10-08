@@ -1,0 +1,150 @@
+{
+  "format": 1,
+  "name": "ps_hcp",
+  "label": {
+    "name": "eff_layers",
+    "unit": "layers",
+    "title": "Layer number",
+    "classes": true,
+    "class_name": "{}L",
+    "zero_name": "substrate",
+    "gap": 0.5
+  },
+  "description": "PS bead layers (close-packed model) on SiO2 / Si",
+  "stack": "Air | top layer (nested): nested_top, 244.9 nm (repeat layers >= 2) | top layer (first): first_layer_top, 300 nm (repeat layers == 1) | full nested layers: nested_layer, 244.9 nm (repeat max(layers - 2, 0)) | full first layer: first_layer, 300 nm (repeat layers >= 2) | oxide: SiO2-Franta, 100 nm | Si-Franta",
+  "illuminant": "D65",
+  "NA": 0.0,
+  "na_weighting": "uniform",
+  "constants": {
+    "bead_nm": 300.0,
+    "oxide_nm": 100.0,
+    "max_layers": 5.0,
+    "packing_step": 0.01,
+    "f_hex": 0.6045997880780726,
+    "f_cp": 0.7404804896930609,
+    "pitch_nm": 244.94897427831782
+  },
+  "system_file": "systems/ps_hcp.jsonc",
+  "created_by": "python tcd (python/tcd/reference.py)",
+  "definition": {
+    "name": "ps_hcp",
+    "description": "PS bead layers (close-packed model) on SiO2 / Si",
+    "constants": {
+      "bead_nm": 300,
+      "oxide_nm": 100,
+      "max_layers": 5,
+      "packing_step": 0.01,
+      "f_hex": "pi / (3 * sqrt(3))",
+      "f_cp": "pi / (3 * sqrt(2))",
+      "pitch_nm": "bead_nm * sqrt(2 / 3)"
+    },
+    "materials": {
+      "first_layer": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_hex"
+      },
+      "first_layer_top": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_hex * packing"
+      },
+      "nested_layer": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_cp"
+      },
+      "nested_top": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_cp * packing"
+      }
+    },
+    "sweep": [
+      {
+        "layers": 0,
+        "packing": 0
+      },
+      {
+        "layers": {
+          "from": 1,
+          "to": "max_layers",
+          "step": 1
+        },
+        "packing": {
+          "from": "packing_step",
+          "to": 1,
+          "step": "packing_step"
+        }
+      }
+    ],
+    "label": {
+      "name": "eff_layers",
+      "value": "max(layers - 1 + packing, 0)",
+      "unit": "layers",
+      "title": "Layer number",
+      "classes": true,
+      "class_name": "{}L",
+      "zero_name": "substrate"
+    },
+    "ambient": "Air",
+    "layers": [
+      {
+        "name": "top layer (nested)",
+        "material": "nested_top",
+        "thickness": "pitch_nm",
+        "repeat": "layers >= 2"
+      },
+      {
+        "name": "top layer (first)",
+        "material": "first_layer_top",
+        "thickness": "bead_nm",
+        "repeat": "layers == 1"
+      },
+      {
+        "name": "full nested layers",
+        "material": "nested_layer",
+        "thickness": "pitch_nm",
+        "repeat": "max(layers - 2, 0)"
+      },
+      {
+        "name": "full first layer",
+        "material": "first_layer",
+        "thickness": "bead_nm",
+        "repeat": "layers >= 2"
+      },
+      {
+        "name": "oxide",
+        "material": "SiO2-Franta",
+        "thickness": "oxide_nm"
+      }
+    ],
+    "substrate": "Si-Franta",
+    "optics": {
+      "illuminant": "D65",
+      "na": 0
+    }
+  },
+  "columns": [
+    "layers",
+    "packing",
+    "eff_layers",
+    "X",
+    "Y",
+    "Z",
+    "Jp",
+    "ap",
+    "bp",
+    "L",
+    "a",
+    "b",
+    "sR",
+    "sG",
+    "sB",
+    "dE_substrate"
+  ]
+}

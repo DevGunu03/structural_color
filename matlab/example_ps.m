@@ -3,8 +3,9 @@
 %   bare-substrate region. Results go to ../results/<image name>.*
 here = fileparts(mfilename('fullpath'));
 ref = tcd_load_reference(fullfile(here, '..', 'refs', 'ps_D65.csv'));
-% For another stack, build your own reference instead, e.g.
-%   ref = tcd_build_reference('PS', 'Bead', 500, 'Oxide', 285, 'Out', fullfile(here, '..', 'refs', 'ps_500nm_285ox.csv'));
+% Other beads or oxide: build a reference from the same system file with other constants, e.g.
+%   ref = tcd_build_reference('ps', 'Set', {'bead_nm', 500; 'oxide_nm', 285}, 'Out', 'auto');
+% or try the close-packed model:  ref = tcd_build_reference('ps_hcp', 'Out', 'auto');
 
 [f, p] = uigetfile({'*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp', 'Images'}, 'Select a PS-bead micrograph');
 if isequal(f, 0), return; end
@@ -14,3 +15,4 @@ res = tcd_map_image(fullfile(p, f), ref, ...
     'Gamma', 1, ...             % measure it once per camera with tcd_measure_gamma
     'Out', fullfile(here, '..', 'results', name));
 disp(res.summary)
+% res.classes: layer number per pixel (-1 = unassigned); res.value: effective layer number.

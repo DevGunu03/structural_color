@@ -1,0 +1,37 @@
+// Few-layer graphene on 285 nm SiO2 / Si: counting atomic layers by colour.
+//
+// Graphene is not in the n,k library, so it is given a constant index, the bulk-graphite
+// value n = 2.6 + 1.3i used by Blake et al., "Making graphene visible", Appl. Phys. Lett. 91,
+// 063124 (2007), with 0.34 nm per layer. Replace it with measured n,k data when you have it:
+//   "graphene": {"file": "data/materials/graphene.csv"}
+//
+// The colour change per layer is small (a few Delta E), so this system needs a good substrate
+// calibration, and anchors on flakes of known layer number (Raman) help a lot.
+{
+  "name": "graphene",
+  "description": "Graphene, 0-10 layers, on 285 nm SiO2 / Si",
+
+  "constants": {
+    "oxide_nm": 285,     // 90 nm and 285-300 nm oxides give the strongest contrast
+    "max_layers": 10,
+    "layer_nm": 0.34
+  },
+
+  "materials": {
+    "graphene": {"n": 2.6, "k": 1.3}
+  },
+
+  // Whole layer numbers only: 0 is the bare substrate.
+  "sweep": {"layers": {"from": 0, "to": "max_layers", "step": 1}},
+  "label": {"name": "layers", "unit": "layers", "title": "Graphene layers",
+            "classes": true, "class_name": "{}L", "zero_name": "substrate"},
+
+  "ambient": "Air",
+  "layers": [
+    {"name": "graphene", "material": "graphene", "thickness": "layer_nm * layers"},
+    {"name": "oxide", "material": "SiO2-Franta", "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",
+
+  "optics": {"illuminant": "D65", "na": 0}
+}

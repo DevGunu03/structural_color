@@ -12,9 +12,13 @@ Steps
   5. Assign each pixel the reference entry nearest in the full J'a'b' space, which
      separates structures with equal Delta E but different hue. Pixels whose nearest
      reference is further than ``max_residual`` (dust, edges, saturated pixels, colours the
-     model cannot produce) are left unassigned. For MoO3 the best match whose thickness
-     differs by more than ``ambiguity_gap_nm`` is also reported, since interference
-     colours repeat with thickness.
+     model cannot produce) are left unassigned. The best match whose label differs by more
+     than the reference's ambiguity gap is also reported, since interference colours repeat
+     with thickness: where it fits almost as well, the colour alone cannot decide.
+  6. For references whose label is a whole number of layers (``label.classes``), the label is
+     rounded half up into classes and cleaned with a majority filter.
+
+Nothing here depends on the material system: everything comes from the reference.
 """
 from __future__ import annotations
 
@@ -138,11 +142,13 @@ def mode_filter(labels: np.ndarray, size: int, n_classes: int) -> np.ndarray:
 def analyse(image_path: str | Path, reference: Reference, substrate_roi: Roi,
             anchors: list[tuple[Roi, int, str]] | None = None, max_side: int | None = 1600,
             smooth_sigma: float = 1.2, max_residual: float = 15.0, correction_mode: str = "auto",
-            ambiguity_gap_nm: float = 40.0, saturation_level: float = 0.985,
+            ambiguity_gap: float | None = None, saturation_level: float = 0.985,
             gamma: float | str = 1.0) -> TCDResult:
     """``gamma`` decodes camera values to linear intensity: 'srgb' for the sRGB curve, or a
     number g for v**g. Microscope cameras often write (near-)linear data; for the images
-    tested so far g = 1 put the image colours on the simulated locus far better than 'srgb'."""
+    tested so far g = 1 put the image colours on the simulated locus far better than 'srgb'.
+    ``ambiguity_gap`` (label units) defaults to the reference's ``label['gap']``."""
+    gap = float(reference.label["gap"] if ambiguity_gap is None else ambiguity_gap)
     img, scale = load_image(image_path, max_side)
     saturated = np.any(img >= saturation_level, axis=-1)
     work = ndimage.gaussian_filter(img, sigma=(smooth_sigma, smooth_sigma, 0)) if smooth_sigma > 0 else img
@@ -167,49 +173,69 @@ def analyse(image_path: str | Path, reference: Reference, substrate_roi: Roi,
     index = np.where(bad, -1, index)
     value[bad] = np.nan
 
-    alt_value = alt_residual = None
-    if reference.system == "MoO3":
-        alt_v, alt_d = best_alternative(flat, index, ~bad, reference, ambiguity_gap_nm)
-        alt_value, alt_residual = alt_v.reshape(tcd.shape), alt_d.reshape(tcd.shape)
+    alt_v, alt_d = best_alternative(flat, index, ~bad, reference, gap)
+    alt_value, alt_residual = alt_v.reshape(tcd.shape), alt_d.reshape(tcd.shape)
 
     calibrated_display = np.clip(C.colour.models.eotf_inverse_sRGB(np.clip(lin_cal, 0, 1)), 0, 1)
     settings = dict(max_side=max_side, smooth_sigma=smooth_sigma, max_residual=max_residual,
-                    correction_mode=correction_mode, ambiguity_gap_nm=ambiguity_gap_nm, gamma=gamma,
+                    correction_mode=correction_mode, ambiguity_gap=gap, gamma=gamma,
                     image=str(image_path))
     return TCDResult(img, calibrated_display, Jab, tcd, index.reshape(tcd.shape), value.reshape(tcd.shape),
                      residual.reshape(tcd.shape), alt_value, alt_residual, saturated, reference,
                      all_anchors, M, scale, settings)
 
 
-def layer_classes(result: TCDResult, max_class: int | None = None, clean: int = 5) -> np.ndarray:
-    """PS only: integer layer map (0 = substrate, 1 = 1L, ...; -1 unassigned), majority-filtered."""
-    cls = np.where(result.assigned, np.floor(np.nan_to_num(result.value, nan=0) + 0.5).astype(int), -1)  # half up
-    if max_class is not None:
-        cls = np.where(cls > max_class, max_class, cls)
-    n = int(np.nanmax(result.reference.value)) + 1
-    return mode_filter(cls, clean, n) if clean and clean > 1 else cls
+def layer_classes(result: TCDResult, clean: int = 5) -> np.ndarray:
+    """Whole-class map for ``label.classes`` references (-1 = unassigned), majority-filtered.
+
+    The label is rounded half up (1.5 -> 2) so both languages agree; classes start at the
+    smallest class of the reference (normally 0 = substrate).
+    """
+    ref = result.reference
+    lo = ref.class_range().start
+    cls = np.where(result.assigned, np.floor(np.nan_to_num(result.value, nan=0) + 0.5).astype(int) - lo, -1)
+    n = len(ref.class_range())
+    cls = mode_filter(cls, clean, n) if clean and clean > 1 else cls
+    return np.where(cls >= 0, cls + lo, -1)
+
+
+def nice_step(span: float, n: int = 12) -> float:
+    """A round bin width (1, 2, 2.5 or 5 x 10^k) giving about ``n`` bins over ``span``."""
+    raw = max(span, 1e-12) / n
+    p = 10 ** np.floor(np.log10(raw))
+    return float(next(m * p for m in (1, 2, 2.5, 5, 10) if m * p >= raw - 1e-12))
 
 
 def summary_rows(result: TCDResult) -> list[dict]:
+    """Pixel fractions per class or per label bin, plus how often the colour is ambiguous.
+
+    'covered' pixels are assigned pixels whose label differs from the calibration row's by
+    more than half the ambiguity gap (the flake / bead area). Of those, the ambiguity row
+    counts the ones whose best alternative fits within 2 Delta E of the chosen match.
+    """
+    ref, v = result.reference, result.value
     total = result.index.size
+    gap = result.settings["ambiguity_gap"]
+
+    def stats(item, m, of=total):
+        return dict(item=item, pixels=int(m.sum()), fraction=float(m.sum() / max(of, 1)),
+                    median_residual=float(np.median(result.residual[m])) if m.any() else np.nan)
+
     rows = [dict(item="unassigned", pixels=int((~result.assigned).sum()),
                  fraction=float((~result.assigned).mean()), median_residual=np.nan)]
-    if result.reference.system == "PS":
+    covered = result.assigned & (np.abs(np.nan_to_num(v, nan=ref.value[0]) - ref.value[0]) > gap / 2)
+    close = covered & (result.alt_residual - result.residual < 2.0)
+    unit = ref.label.get("unit", "")
+    rows.append(dict(stats(f"covered px with an alternative > {gap:g} {unit} away within 2 dE".replace("  ", " "),
+                           close, int(covered.sum())), median_residual=np.nan))
+    if ref.classes:
         cls = layer_classes(result, clean=0)
-        for c in range(int(np.nanmax(result.reference.value)) + 1):
-            m = cls == c
-            rows.append(dict(item="substrate" if c == 0 else f"{c}L", pixels=int(m.sum()),
-                             fraction=float(m.sum() / total),
-                             median_residual=float(np.median(result.residual[m])) if m.any() else np.nan))
+        for c in ref.class_range():
+            rows.append(stats(ref.class_name(c), cls == c))
     else:
-        v = result.value
-        flake = result.assigned & (v > 20)
-        close = flake & (result.alt_residual - result.residual < 2.0)
-        rows.append(dict(item="flake px with alternative thickness within 2 dE", pixels=int(close.sum()),
-                         fraction=float(close.sum() / max(flake.sum(), 1)), median_residual=np.nan))
-        edges = np.arange(0, np.nanmax(result.reference.value) + 50, 50)
-        for lo, hi in zip(edges[:-1], edges[1:]):
-            m = (v >= lo) & (v < hi)
-            rows.append(dict(item=f"{lo:.0f}-{hi:.0f} nm", pixels=int(m.sum()), fraction=float(m.sum() / total),
-                             median_residual=float(np.median(result.residual[m])) if m.any() else np.nan))
+        w = nice_step(float(np.nanmax(ref.value) - np.nanmin(ref.value)))
+        edges = np.arange(np.floor(np.nanmin(ref.value) / w) * w, np.nanmax(ref.value) + w * 0.999, w)
+        for j, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+            m = (v >= lo) & ((v < hi) if j < len(edges) - 2 else (v <= hi))
+            rows.append(stats(f"{lo:g}-{hi:g} {unit}".strip(), m))
     return rows

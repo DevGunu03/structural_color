@@ -1,6 +1,7 @@
 function [idx, dist, altVal, altDist] = nearest_ref(X, ref, valid, gap)
 %NEAREST_REF Nearest reference row (J'a'b') for each pixel, exhaustive and chunked.
-%   With GAP (MoO3), also the best row whose value differs from the best match by > GAP.
+%   With GAP, also the best row whose label differs from the best match by more than GAP
+%   (interference colours repeat, so a different structure can have almost the same colour).
 R = ref.Jab;
 rr = sum(R .^ 2, 2)';
 n = size(X, 1);

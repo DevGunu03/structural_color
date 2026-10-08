@@ -1,0 +1,89 @@
+{
+  "format": 1,
+  "name": "graphene",
+  "label": {
+    "name": "layers",
+    "unit": "layers",
+    "title": "Graphene layers",
+    "classes": true,
+    "class_name": "{}L",
+    "zero_name": "substrate",
+    "gap": 0.5
+  },
+  "description": "Graphene, 0-10 layers, on 285 nm SiO2 / Si",
+  "stack": "Air | graphene: graphene, (layer_nm * layers) nm | oxide: SiO2-Franta, 285 nm | Si-Franta",
+  "illuminant": "D65",
+  "NA": 0.0,
+  "na_weighting": "uniform",
+  "constants": {
+    "oxide_nm": 285.0,
+    "max_layers": 10.0,
+    "layer_nm": 0.34
+  },
+  "system_file": "systems/graphene.jsonc",
+  "created_by": "python tcd (python/tcd/reference.py)",
+  "definition": {
+    "name": "graphene",
+    "description": "Graphene, 0-10 layers, on 285 nm SiO2 / Si",
+    "constants": {
+      "oxide_nm": 285,
+      "max_layers": 10,
+      "layer_nm": 0.34
+    },
+    "materials": {
+      "graphene": {
+        "n": 2.6,
+        "k": 1.3
+      }
+    },
+    "sweep": {
+      "layers": {
+        "from": 0,
+        "to": "max_layers",
+        "step": 1
+      }
+    },
+    "label": {
+      "name": "layers",
+      "unit": "layers",
+      "title": "Graphene layers",
+      "classes": true,
+      "class_name": "{}L",
+      "zero_name": "substrate"
+    },
+    "ambient": "Air",
+    "layers": [
+      {
+        "name": "graphene",
+        "material": "graphene",
+        "thickness": "layer_nm * layers"
+      },
+      {
+        "name": "oxide",
+        "material": "SiO2-Franta",
+        "thickness": "oxide_nm"
+      }
+    ],
+    "substrate": "Si-Franta",
+    "optics": {
+      "illuminant": "D65",
+      "na": 0
+    }
+  },
+  "columns": [
+    "layers",
+    "X",
+    "Y",
+    "Z",
+    "Jp",
+    "ap",
+    "bp",
+    "L",
+    "a",
+    "b",
+    "sR",
+    "sG",
+    "sB",
+    "dE_substrate"
+  ]
+}

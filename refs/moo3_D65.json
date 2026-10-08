@@ -1,10 +1,66 @@
 {
-  "stack": "Air | aMoO3 (t) | SiO2-Franta 100.0 nm | Si-Franta",
+  "format": 1,
+  "name": "moo3",
+  "label": {
+    "name": "thickness_nm",
+    "unit": "nm",
+    "title": "MoO3 thickness",
+    "classes": false,
+    "class_name": "{}",
+    "zero_name": "",
+    "gap": 40.0
+  },
+  "description": "alpha-MoO3 flakes on SiO2 / Si, thickness 0-600 nm",
+  "stack": "Air | flake: aMoO3, thickness_nm nm | oxide: SiO2-Franta, 100 nm | Si-Franta",
   "illuminant": "D65",
   "NA": 0.0,
-  "t_max": 600.0,
-  "step": 1.0,
-  "system": "MoO3",
+  "na_weighting": "uniform",
+  "constants": {
+    "oxide_nm": 100.0,
+    "t_max": 600.0,
+    "t_step": 1.0
+  },
+  "system_file": "systems/moo3.jsonc",
+  "created_by": "python tcd (python/tcd/reference.py)",
+  "definition": {
+    "name": "moo3",
+    "description": "alpha-MoO3 flakes on SiO2 / Si, thickness 0-600 nm",
+    "constants": {
+      "oxide_nm": 100,
+      "t_max": 600,
+      "t_step": 1
+    },
+    "sweep": {
+      "thickness_nm": {
+        "from": 0,
+        "to": "t_max",
+        "step": "t_step"
+      }
+    },
+    "label": {
+      "name": "thickness_nm",
+      "unit": "nm",
+      "title": "MoO3 thickness"
+    },
+    "ambient": "Air",
+    "layers": [
+      {
+        "name": "flake",
+        "material": "aMoO3",
+        "thickness": "thickness_nm"
+      },
+      {
+        "name": "oxide",
+        "material": "SiO2-Franta",
+        "thickness": "oxide_nm"
+      }
+    ],
+    "substrate": "Si-Franta",
+    "optics": {
+      "illuminant": "D65",
+      "na": 0
+    }
+  },
   "columns": [
     "thickness_nm",
     "X",

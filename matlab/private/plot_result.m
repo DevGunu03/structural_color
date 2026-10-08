@@ -6,7 +6,9 @@ fig = figure('Visible', vis, 'Position', [50 50 1500 860], 'Color', 'w');
 tl = tiledlayout(fig, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 tl.OuterPosition = [0 0 1 0.95];                    % leave a strip at the top for the heading
 [~, name, ext] = fileparts(res.settings.image);
-annotation(fig, 'textbox', [0 0.955 1 0.04], 'String', sprintf('%s%s  |  %s', name, ext, ref.meta.stack), ...
+heading = ref.meta.stack;
+if isfield(ref.meta, 'description') && ~isempty(ref.meta.description), heading = ref.meta.description; end
+annotation(fig, 'textbox', [0 0.955 1 0.04], 'String', sprintf('%s%s  |  %s: %s', name, ext, ref.name, heading), ...
     'Interpreter', 'none', 'EdgeColor', 'none', 'HorizontalAlignment', 'center', 'FontSize', 11);
 
 ax = nexttile(tl); image(ax, res.image); axis(ax, 'image', 'off'); hold(ax, 'on');
@@ -29,21 +31,27 @@ cb = colorbar(ax); cb.Label.String = '\DeltaE from substrate (CAM02-UCS)';
 title(ax, 'TCD map (absolute \DeltaE)');
 
 ax = nexttile(tl);
-if strcmp(ref.system, 'PS')
-    n = floor(max(ref.value));
-    dense = 1;
-    for k = 1:n, dense(end + 1) = find(ref.params.layers == k & abs(ref.params.packing - 1) < 1e-9, 1); end %#ok<AGROW>
-    imagesc(ax, res.layers, [-1.5, n + 0.5]); axis(ax, 'image', 'off');
-    colormap(ax, [0.82 0.82 0.82; ref.sRGB(dense, :)]);
-    cb = colorbar(ax); cb.Ticks = -1:n;
-    cb.TickLabels = [{'unassigned', 'substrate'}, arrayfun(@(k) sprintf('%dL', k), 1:n, 'UniformOutput', false)];
-    title(ax, 'Layer number (shown in simulated colours)');
+lab = ref.label;
+if lab.classes
+    ks = floor(min(ref.value) + 0.5):floor(max(ref.value) + 0.5);
+    rows = arrayfun(@(k) ref_find(ref, sprintf('%d', k)), ks);
+    imagesc(ax, res.classes, [ks(1) - 1.5, ks(end) + 0.5]); axis(ax, 'image', 'off');
+    colormap(ax, [0.82 0.82 0.82; ref.sRGB(rows, :)]);
+    names = arrayfun(@(k) strrep(lab.class_name, '{}', sprintf('%d', k)), ks, 'UniformOutput', false);
+    if ks(1) == 0 && ~isempty(lab.zero_name), names{1} = lab.zero_name; end
+    cb = colorbar(ax); cb.Ticks = ks(1) - 1:ks(end);
+    cb.TickLabels = [{'unassigned'}, names];
+    title(ax, sprintf('%s (shown in simulated colours)', lab.title), 'Interpreter', 'none');
 else
-    v = res.value; v(isnan(v)) = -1;
-    imagesc(ax, v, [-max(ref.value) / 255, max(ref.value)]); axis(ax, 'image', 'off');
+    lo = min(ref.value); hi = max(ref.value);
+    v = res.value; v(isnan(v)) = lo - (hi - lo) / 255;
+    imagesc(ax, v, [lo - (hi - lo) / 255, hi]); axis(ax, 'image', 'off');
     colormap(ax, [0.82 0.82 0.82; parula(255)]);
-    cb = colorbar(ax); cb.Label.String = 'MoO_3 thickness (nm)'; cb.Limits = [0 max(ref.value)];
-    title(ax, 'Thickness (nearest reference, grey = unassigned)');
+    cb = colorbar(ax); cb.Limits = [lo hi];
+    cb.Label.String = lab.title;
+    if ~isempty(lab.unit), cb.Label.String = sprintf('%s (%s)', lab.title, lab.unit); end
+    cb.Label.Interpreter = 'none';
+    title(ax, sprintf('%s (nearest reference, grey = unassigned)', lab.title), 'Interpreter', 'none');
 end
 
 ax = nexttile(tl); imagesc(ax, res.residual, [0 max(1.5 * res.settings.MaxResidual, 1)]); axis(ax, 'image', 'off');

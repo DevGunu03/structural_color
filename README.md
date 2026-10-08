@@ -1,24 +1,29 @@
 # Structural Color
 
-Layer-number and thickness maps of thin layers on SiO₂/Si from an ordinary optical micrograph. A transfer-matrix (TMM) simulation predicts the colour of every candidate structure. Each pixel of the micrograph is then matched to the nearest simulated colour in the CAM02-UCS colour space, using total colour difference (TCD, ΔE).
+Thickness and layer-number maps of thin films and layered structures from an ordinary optical micrograph.
 
-Two systems are set up, both on 100 nm SiO₂ on Si:
+You describe the sample once, in a **system file**: its layers, their materials, and what varies from place to place. A transfer-matrix (TMM) simulation then predicts the colour of every candidate structure, and each pixel of the micrograph is matched to the nearest simulated colour in CAM02-UCS (total colour difference, TCD, ΔE).
+
+Two systems come from this project, both on 100 nm SiO₂ on Si:
 
 - **Polystyrene (PS) bead layers**: 300 nm beads, layer number 0–5 plus the packing of the top layer.
 - **Exfoliated MoO₃ flakes**: thickness 0–600 nm.
 
-The same method is implemented in **Python** and in **MATLAB**, and the two give the same answer. On a 546 000-pixel test micrograph, 99.8 % of pixels receive identical values and every class fraction agrees to 0.01 percentage points.
+Four more show what system files can describe: thermal SiO₂, graphene layer counting, a Bragg mirror, and a commented template. For your own sample, see [systems/README.md](systems/README.md).
+
+The same method is implemented in **Python** and in **MATLAB**, and the two give the same answer. Both read the same system files and build the same references (J′a′b′ within 5 × 10⁻⁴). On a 546 000-pixel test micrograph, 99.8 % of pixels receive identical values.
 
 ## What is in this repository
 
 | Path | Contents |
 | --- | --- |
-| `python/` | Package `tcd` and the command-line tool `run_tcd.py` (build references, map images, measure camera gamma) |
-| `matlab/` | `tcd_build_reference`, `tcd_map_image`, `tcd_measure_gamma`, `tcd_colour`, two example scripts and a test suite. No toolboxes needed |
-| `refs/` | Ready-made references `ps_D65.csv` and `moo3_D65.csv` (+ `.json` metadata, `.png` colour bar and ΔE curve) |
-| `data/` | Optical constants (`nk_library.csv`), CIE 1931 2° colour-matching functions, CIE illuminants D65 / A / D50 |
+| `systems/` | System files: the bundled samples, a commented `template.jsonc`, and the [guide to writing your own](systems/README.md) |
+| `python/` | Package `tcd` and the command-line tool `run_tcd.py` (check spectra, build references, map images, measure camera gamma). [python/README.md](python/README.md) |
+| `matlab/` | `tcd_load_system`, `tcd_spectrum`, `tcd_build_reference`, `tcd_map_image`, `tcd_tmm`, ..., examples and a test suite. No toolboxes needed. [matlab/README.md](matlab/README.md) |
+| `refs/` | Ready-made references of the bundled systems (`.csv` + `.json`) and their reference sheets (`.png`) |
+| `data/` | Optical constants (`nk_library.csv`, plus `materials/` for your own), CIE colour-matching functions and illuminants. [data/README.md](data/README.md) |
 | `examples/` | Five example micrographs (two PS, three MoO₃), a script that maps them all, and two result figures |
-| `tests/fixtures/` | Reflectance spectra written by the original `TransferMatrix` code, used by both test suites |
+| `tests/fixtures/` | Reflectance spectra from the original `TransferMatrix` code and the Python NA code, used by both test suites |
 | `legacy/` | The original step-by-step workflow (notebooks 1–5, scripts 6–8, `TransferMatrix/`), kept unchanged and described at the end |
 
 ## Try it on the bundled examples
@@ -38,6 +43,50 @@ PS beads imaged on a Chennai Metco microscope, calibrated on the bare substrate 
 Exfoliated MoO₃ flakes (region 3): flakes map to 100–550 nm. For about half of the flake pixels another thickness more than 40 nm away fits almost as well; see *Before you trust a map*.
 
 ![MoO3 flakes: micrograph, calibrated image, TCD map, thickness map, residual and image colours against the simulated locus](examples/results/moo3_region_3.png)
+
+## Your own sample in four steps
+
+```mermaid
+flowchart LR
+    A["1 · system file<br/>systems/my_sample.jsonc"] --> B["2 · check single<br/>structures"]
+    B --> C["3 · build the reference<br/>+ reference sheet"]
+    C --> D["4 · map micrographs"]
+```
+
+1. **Describe the sample.** Copy [systems/template.jsonc](systems/template.jsonc) to `systems/my_sample.jsonc`. List the layers from the light side down, their materials, the substrate, and the parameters that vary: a thickness, a number of layers, a coverage, ... Materials can be:
+   - library names (`python python/run_tcd.py materials` / `tcd_materials`);
+   - your own n,k files;
+   - Cauchy or Sellmeier models;
+   - mixtures (Maxwell-Garnett, Bruggeman).
+
+   Any number can be an expression, e.g. `"thickness": "bead_nm * sqrt(2/3)"`.
+2. **Check single structures** before simulating them all:
+   ```bash
+   python python/run_tcd.py spectrum --system my_sample --at t=0 --at t=120
+   ```
+   ```matlab
+   tcd_spectrum('my_sample', struct('t', [0 120]))
+   ```
+3. **Build the reference.** This simulates every candidate and writes its colour table and reference sheet:
+   ```bash
+   python python/run_tcd.py build-ref --system my_sample            # -> refs/my_sample_D65.csv / .json / .png
+   ```
+   ```matlab
+   tcd_build_reference('my_sample', 'Out', 'auto')
+   ```
+4. **Map micrographs** with it:
+   ```bash
+   python python/run_tcd.py map --ref refs/my_sample_D65.csv --interactive   # choose the image, click the substrate
+   ```
+   ```matlab
+   tcd_map_image('', '../refs/my_sample_D65.csv')
+   ```
+
+The reference sheet shows, before you map anything, which structures colour can and cannot tell apart. The red curve is the ΔE to the nearest structure that looks alike, and below about 2 the micrograph cannot decide:
+
+![Reference sheet of the PS-bead system: colour strip, Delta E from the substrate and to the nearest look-alike, colour path in a'b', colour chart](refs/ps_D65.png)
+
+The full guide, with every key of a system file, modelling advice and troubleshooting, is [systems/README.md](systems/README.md). `matlab/example_own_system.m` runs the same steps section by section.
 
 ## Quick start: Python
 
@@ -60,19 +109,20 @@ Each run writes:
 
 | File | Content |
 | --- | --- |
-| `<out>.png` | Micrograph with regions, calibrated image, TCD map, layer/thickness map, match residual, image colours against the simulated locus |
-| `<out>_summary.csv` | Area fraction per layer (PS) or per 50 nm bin (MoO₃), unassigned fraction, median residuals; for MoO₃ also the share of flake pixels with an equally good alternative thickness |
-| `<out>_maps.npz` | Per-pixel `tcd`, `value` (nm or effective layer number), `residual`, `layers` (PS), `alt_value` / `alt_residual` (MoO₃) |
+| `<out>.png` | Micrograph with regions, calibrated image, TCD map, thickness / layer map, match residual, image colours against the simulated locus |
+| `<out>_summary.csv` | Area fraction per class (e.g. layer number) or per thickness bin, unassigned fraction, median residuals, and the share of covered pixels with an equally good alternative |
+| `<out>_maps.npz` | Per-pixel `tcd`, `value` (thickness, effective layer number, ...), `residual`, `alt_value` / `alt_residual`, and `classes` for whole-number labels |
 | `<out>_run.json` | Regions, colour-correction matrix and all settings |
 
-A reference for a different stack:
+A reference for a different stack, without editing any file:
 
 ```bash
-python python/run_tcd.py build-ref --system PS --bead 500 --oxide 285 --out refs/ps_500nm_285ox.csv
-python python/run_tcd.py build-ref --system MoO3 --t-max 400 --illuminant A --out refs/moo3_A.csv
+python python/run_tcd.py build-ref --system ps --set bead_nm=500 --set oxide_nm=285   # -> refs/ps_bead_nm500_oxide_nm285_D65.csv
+python python/run_tcd.py build-ref --system moo3 --set t_max=400 --illuminant A
+python python/run_tcd.py build-ref --system ps_hcp --na 0.5                           # close-packed model, NA 0.5 objective
 ```
 
-Other `build-ref` options: `--max-layers`, `--packing-step`, `--model slab|hcp` (PS stacking), `--material <library name or n,k file>`, `--na <objective NA>` (cone-averaged s+p reflectance, Python only), `--illuminant <lamp spectrum CSV>`.
+All commands and options: [python/README.md](python/README.md).
 
 ## Quick start: MATLAB
 
@@ -83,25 +133,26 @@ addpath tests; run_tests        % prints "all checks passed"
 run_examples                    % the five bundled micrographs, no clicking
 example_ps                      % your own image: pick it, click two corners of a bare-substrate region
 example_moo3
+example_own_system              % a new sample, from system file to map
 ```
 
 Or call the functions directly:
 
 ```matlab
-ref = tcd_load_reference('../refs/moo3_D65.csv');           % or tcd_build_reference('MoO3', 'TMax', 400)
-res = tcd_map_image('flakes.png', ref, 'Substrate', 'auto', 'TMax', 400, 'Out', '../results/flakes');
+ref = tcd_build_reference('moo3', 'Set', {'t_max', 400});           % or tcd_load_reference('../refs/moo3_D65.csv')
+res = tcd_map_image('flakes.png', ref, 'Substrate', 'auto', 'Out', '../results/flakes');
 disp(res.summary)
 ```
 
-In MATLAB, regions are `[x y w h]` with a **1-based** top-left corner. `tcd_build_reference(..., 'Out', file)` writes the same CSV + JSON format as Python, so a reference built in either language loads in the other. `help tcd_map_image` lists every option.
+In MATLAB, regions are `[x y w h]` with a **1-based** top-left corner. References are saved in the same CSV + JSON format as in Python, so a reference built in either language loads in the other. All functions: [matlab/README.md](matlab/README.md).
 
 ## How the mapping works
 
-1. **Reference.** For every candidate structure, the TMM gives R(λ) over 360–830 nm. Each R(λ) becomes XYZ (CIE 1931 2°, chosen illuminant) and then CAM02-UCS (viewing conditions of Cobeldick's `sRGB_to_CAM02UCS.m`). PS layers are Maxwell-Garnett slabs of beads in air at fill fraction 0.6046 × packing.
+1. **Reference.** The system file gives a layer stack for every candidate structure. The TMM gives each stack's reflectance R(λ) over 360–830 nm, at normal incidence or averaged over the objective's NA. Each R(λ) becomes XYZ (CIE 1931 2°, chosen illuminant), then CAM02-UCS (viewing conditions of Cobeldick's `sRGB_to_CAM02UCS.m`).
 2. **Linearise.** Camera values *v* become intensity *v*^γ (see *Camera gamma* below), after a 1.2 px Gaussian smoothing.
-3. **Calibrate.** The median colour of a bare-substrate region is forced onto the simulated substrate colour by per-channel gains (exposure and white balance). Extra regions of known structure (`--anchor 1L@x,y,w,h`, MATLAB `'Anchors'`) turn the gains into a 3×3 matrix.
+3. **Calibrate.** Per-channel gains force the median colour of a bare-substrate region onto the simulated colour of the first candidate. This corrects exposure and white balance. Extra regions of known structure (`--anchor 1L@x,y,w,h`, MATLAB `'Anchors'`) turn the gains into a 3×3 matrix.
 4. **TCD map.** ΔE of every pixel from the simulated substrate, in absolute CAM02-UCS units.
-5. **Assign.** Each pixel takes the reference entry nearest in J′a′b′. Matching the full colour, not just ΔE, separates structures that have equal ΔE but different hue. Pixels farther than 15 ΔE from every entry (dust, edges, saturated pixels) stay unassigned. PS: the effective layer number (N − 1 + packing) is rounded half-up to a layer class and majority-filtered. MoO₃: the best alternative more than 40 nm away is reported too.
+5. **Assign.** Each pixel takes the candidate nearest in J′a′b′. Matching the full colour, not just ΔE, separates structures that have equal ΔE but different hue. Pixels farther than 15 ΔE from every candidate (dust, edges, saturated pixels) stay unassigned. The best candidate more than the system's *gap* away is reported too, because interference colours repeat. Whole-number labels, such as layer counts, are rounded half up into classes and majority-filtered.
 
 ## Before you trust a map
 
@@ -115,15 +166,17 @@ In MATLAB, regions are `[x y w h]` with a **1-based** top-left corner. `tcd_buil
   ```
 
   Pass the result as `--gamma` / `'Gamma'` (`srgb` for sRGB-encoded output).
-- **The substrate region must be bare substrate.** The whole calibration rests on it.
+- **The substrate region must be bare substrate.** More precisely, it must be the structure of the first candidate in the system file. The whole calibration rests on it.
 - **Anchors only where SEM/AFM confirms the structure.** A spin-coated "monolayer" that is not close-packed, forced onto the dense-monolayer colour, shifts every other layer.
-- **MoO₃ colours repeat about every 130 nm.** On the flakes tested, 35–52 % of flake pixels had a thickness at least 40 nm away that fits within 2 ΔE. Check `alt_value` / `altValue`, and cap the search with `--t-max` / `'TMax'` from one AFM-measured flake.
-- **The PS model is an effective medium.** Maxwell-Garnett assumes particles much smaller than the wavelength; 300 nm beads are not, so scattering and photonic-crystal effects are missing. Treat layers above three as approximate: dense 2L to 5L all sit 14–18 ΔE from the substrate, close to one another.
+- **Read the reference sheet.** Wherever its red curve drops below about 2 ΔE, colour alone cannot tell the structure from one further away.
+  - MoO₃ colours repeat about every 130 nm. On the flakes tested, 35–52 % of flake pixels had a thickness at least 40 nm away that fits within 2 ΔE. Check `alt_value` / `altValue`, and cap the search with `--max-value` / `'MaxValue'` from one AFM-measured flake.
+  - For PS beads, 4 and 5 layers are within 1 ΔE of each other.
+- **The PS model is an effective medium.** Maxwell-Garnett assumes particles much smaller than the wavelength. 300 nm beads are not, so scattering and photonic-crystal effects are missing. Treat layers above three as approximate, and compare the `ps` and `ps_hcp` models on your images.
 - **Read the residual map.** A high residual marks colours the model cannot produce.
 
 ## The original step-by-step workflow
 
-The numbered notebooks and scripts below are the first version of this work. They now live in `legacy/` and are otherwise kept as they were; run them from inside that folder. The Python and MATLAB code above supersedes steps 6–8.
+The numbered notebooks and scripts below are the first version of this work. They now live in `legacy/` and are otherwise kept as they were; run them from inside that folder. The code above supersedes them: system files replace editing `TransferMatrix_multiple.m` / `TransferMatrix_packing.m` (step 01), the reference sheet replaces the colour bars of step 02, `build-ref` / `tcd_build_reference` replace the sRGB tables of step 03, and `map` / `tcd_map_image` replace steps 6–8.
 
 ### 01. TRANSFER MATRIX MODEL
 The first step in the beginning of the identification is generation of a reference model. I used TMM package created by George F. Burkhard and Eric T. Hoke, whose original source can be found at [McGehee Group](https://web.stanford.edu/group/mcgehee/transfermatrix/). I modified the code to be usable in our case, by adding the Effective Medium Approximation. See, the real TMM model is a basic tool which simulates a scattering event between a light source and a physical system containing an arbitrary number of cuboidal layers - no other shape is allowed. This is even more limiting since only the thickness of the layer is important and not even the actual x,y-dimensions. To simulate results of photonic crystal arrays, we need a model which can introduce spacings in the layer, such that not all space in the thickness we mention is taken up by the material, but some by air, since it is a void. This is taken into consideration by the Maxwell-Garnett Equation which looks like this:
@@ -187,6 +240,6 @@ Known limits of this chain: sRGB is clipped to [0, 1] before CAM02-UCS, camera v
 ## Licence and credits
 
 - Copyright © 2025–2026 Kunal Kumar. This repository is free software, licensed under the **GNU General Public License v3** (see `LICENSE`).
-- `legacy/TransferMatrix/` is adapted from the McGehee group's `TransferMatrix.m` (G. F. Burkhard and E. T. Hoke, Stanford), itself released under the GPL v3. The Python and MATLAB transfer-matrix code in `python/` and `matlab/` is a separate implementation of the published formalism (Pettersson et al., *J. Appl. Phys.* 86, 487, 1999).
+- `legacy/TransferMatrix/` is adapted from the McGehee group's `TransferMatrix.m` (G. F. Burkhard and E. T. Hoke, Stanford), itself released under the GPL v3. `matlab/tcd_tmm.m` and `python/tcd/tmm.py` reimplement the same formalism (Pettersson et al., *J. Appl. Phys.* 86, 487, 1999), vectorised, generalised to any stack and extended to oblique incidence.
 - CAM02-UCS: Luo et al. (2006), with the viewing conditions of Stephen Cobeldick's CIECAM02 toolbox (Apache 2.0). Python colorimetry uses [colour-science](https://www.colour-science.org/) (BSD-3).
-- Optical constants in `data/nk_library.csv`: Si and SiO₂ (Franta et al.), PS beads (Cauchy fit, Naglič et al. 2020), α-MoO₃ (Lajaunie et al., library name `aMoO3`). CIE tables from colour-science.
+- Optical constants in `data/nk_library.csv`: Si, SiO₂ and TiO₂ (Franta et al.), PS beads (Cauchy fit, Naglič et al. 2020), α-MoO₃ (Lajaunie et al., library name `aMoO3`). `systems/graphene.jsonc` uses the constant index of Blake et al., *Appl. Phys. Lett.* 91, 063124 (2007). CIE tables from colour-science.

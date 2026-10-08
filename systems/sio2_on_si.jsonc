@@ -1,0 +1,22 @@
+// Thermal SiO2 on Si: the classic oxide colour chart, 0-1000 nm.
+//
+// The simplest possible system (one film on a substrate). It is a good first test of a new
+// microscope: grow or buy wafers of known oxide thickness and check that the map returns it.
+//   python python/run_tcd.py build-ref --system sio2_on_si
+{
+  "name": "sio2_on_si",
+  "description": "Thermal SiO2 film on Si, thickness 0-1000 nm",
+
+  "constants": {"t_max": 1000, "t_step": 1},
+
+  "sweep": {"oxide_nm": {"from": 0, "to": "t_max", "step": "t_step"}},
+  "label": {"name": "oxide_nm", "unit": "nm", "title": "SiO2 thickness"},
+
+  "ambient": "Air",
+  "layers": [
+    {"name": "oxide", "material": "SiO2-Franta", "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",
+
+  "optics": {"illuminant": "D65", "na": 0}
+}

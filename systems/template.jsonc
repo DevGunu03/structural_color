@@ -1,0 +1,114 @@
+// TEMPLATE: copy this file to systems/<your_sample>.jsonc and edit it.
+//
+// It is a working system (a polymer film with a rough top on SiO2 / Si) that uses every
+// feature, so you can delete what you do not need. Full reference: systems/README.md.
+// Lines starting with // are comments; everything else is JSON (keys and text in "double
+// quotes", no comma after the last item of a list or object).
+//
+// Check it, then build it:
+//   python python/run_tcd.py spectrum  --system systems/template.jsonc --at film_nm=150,rough_nm=0
+//   python python/run_tcd.py build-ref --system systems/template.jsonc
+//   matlab:  ref = tcd_build_reference('../systems/template.jsonc', 'Out', '../refs/template_D65.csv');
+{
+  // Used for the output file names (refs/<name>_D65.csv) and figure titles.
+  "name": "template",
+  "description": "Polymer film (Cauchy model) with a rough top layer on SiO2 / Si",
+
+  // ---------------------------------------------------------------------------------------
+  // CONSTANTS: numbers that are fixed for a given sample but that you may want to change
+  // without editing the file:   --set oxide_nm=285   /   'Set', {'oxide_nm', 285}
+  // A constant can be an expression of the constants above it.
+  // ---------------------------------------------------------------------------------------
+  "constants": {
+    "oxide_nm": 300,
+    "film_max": 400,
+    "half_rough": "0.5"     // 50 % polymer in the roughness layer
+  },
+
+  // ---------------------------------------------------------------------------------------
+  // MATERIALS: your own named materials. Anywhere a material is expected you can also write
+  //   "SiO2-Franta"                        a library name (python python/run_tcd.py materials)
+  //   "my_data/MoS2.csv"                   a (wavelength, n, k) file; um or nm; next to this
+  //                                        file, in the repository root or in data/materials/
+  //   1.45                                 a constant, non-absorbing index
+  //   {"n": 2.6, "k": 1.3}                 a constant complex index (n + ik, k > 0 absorbs)
+  //   {"cauchy": [A, B, C], "k": 0}        n = A + B/lambda^2 + C/lambda^4, lambda in um
+  //   {"sellmeier": {"B": [...], "C": [...]}}   n^2 = 1 + sum B lambda^2/(lambda^2 - C), um
+  //   {"ema": "maxwell-garnett" | "bruggeman" | "linear",
+  //    "host": <material>, "inclusion": <material>, "fraction": <0-1>}   a mixture
+  // Any number in a material may be an expression of constants and sweep parameters.
+  // ---------------------------------------------------------------------------------------
+  "materials": {
+    // Illustrative Cauchy coefficients of a PMMA-like polymer: replace with your own
+    // (e.g. fitted from ellipsometry) or with an n,k file.
+    "polymer": {"cauchy": [1.48, 0.0045, 0], "k": 0},
+    // A rough surface modelled as a 50/50 polymer/air mixture (Bruggeman).
+    "rough_top": {"ema": "bruggeman", "host": "Air", "inclusion": "polymer", "fraction": "half_rough"}
+  },
+
+  // ---------------------------------------------------------------------------------------
+  // SWEEP: the parameters that vary across the sample. Every combination is one candidate
+  // structure that a pixel can be assigned to. Values can be
+  //   12                                   one value
+  //   [0, 1, 2, 5]                         a list
+  //   {"from": 0, "to": 400, "step": 2}    a range (ends included); "num" instead of "step"
+  //                                        gives that many evenly spaced values
+  //   "2 * film_nm"                        an expression of the other parameters (derived)
+  // A list of blocks [{...}, {...}] joins several sweeps; every block names the same
+  // parameters. Within a block the first parameter varies slowest.
+  //
+  // IMPORTANT: the first candidate (row 0) is the calibration structure. The region you mark
+  // as "substrate" in a micrograph is calibrated to its simulated colour, so make row 0 the
+  // bare substrate (here film_nm = 0, rough_nm = 0).
+  // ---------------------------------------------------------------------------------------
+  "sweep": [
+    {"film_nm": 0, "rough_nm": 0},
+    {"film_nm": {"from": 2, "to": "film_max", "step": 2}, "rough_nm": [0, 10, 20]}
+  ],
+
+  // ---------------------------------------------------------------------------------------
+  // LABEL: the number reported for each pixel.
+  //   name        a sweep parameter, or a new column name (then give "value")
+  //   value       expression of the sweep parameters, e.g. "film_nm + rough_nm / 2"
+  //   unit, title shown on figures
+  //   classes     true for whole-number labels (layer counts): maps are rounded half up into
+  //               classes and cleaned with a 5x5 majority filter
+  //   class_name  how a class is printed, "{}" is replaced by the number ("{}L" -> "2L")
+  //   zero_name   name of class 0 (e.g. "substrate")
+  //   gap         two candidates further apart than this (label units) count as different
+  //               structures when checking for look-alike colours; default range / 15, or
+  //               0.5 for classes
+  // ---------------------------------------------------------------------------------------
+  "label": {
+    "name": "total_nm",
+    "value": "film_nm + rough_nm / 2",
+    "unit": "nm",
+    "title": "Polymer thickness (incl. half the roughness)"
+  },
+
+  // ---------------------------------------------------------------------------------------
+  // STACK: light comes from "ambient"; "layers" go from the top (light side) down to the
+  // semi-infinite "substrate". Each layer: "material", "thickness" (nm, number or expression)
+  // and optionally "name" and "repeat" (a whole number or expression; 0 removes the layer).
+  // A repeated group of layers: {"name": "pair", "repeat": "N", "layers": [ ...layers... ]}.
+  // A layer whose thickness is 0 is left out, which is how row 0 becomes the bare substrate.
+  // ---------------------------------------------------------------------------------------
+  "ambient": "Air",
+  "layers": [
+    {"name": "roughness", "material": "rough_top", "thickness": "rough_nm"},
+    {"name": "film", "material": "polymer", "thickness": "film_nm"},
+    {"name": "oxide", "material": "SiO2-Franta", "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",
+
+  // ---------------------------------------------------------------------------------------
+  // OPTICS
+  //   illuminant    "D65" (white-balanced camera), "A" (halogen, no white balance), "D50", or
+  //                 a CSV of (wavelength nm, power) of your lamp
+  //   na            objective numerical aperture; > 0 averages s and p reflectance over the
+  //                 illumination cone (slower). 0 = normal incidence.
+  //   na_weighting  "uniform" (filled back aperture) or "gaussian"
+  //   angles        quadrature points over the cone (24 is plenty)
+  // ---------------------------------------------------------------------------------------
+  "optics": {"illuminant": "D65", "na": 0, "na_weighting": "uniform", "angles": 24}
+}
