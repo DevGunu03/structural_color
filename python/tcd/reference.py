@@ -98,17 +98,23 @@ class Reference:
             if not len(hit):
                 raise KeyError(f"No reference row with {spec}")
             return int(hit[0])
+        return int(np.argmin(np.abs(self.value - self.parse_value(spec))))
+
+    def parse_value(self, spec: str) -> float:
+        """Label value of a text such as '230nm', '230 nm', '2L', '2' or 'substrate'."""
+        low = spec.strip().lower().replace(" ", "")
+        if low in ("substrate", "bare", (self.label.get("zero_name") or "substrate").lower()):
+            return float(self.value[0])
         num = low
         for suffix in (self.label.get("unit", "").lower().replace(" ", ""), "nm", "l"):
             if suffix and num.endswith(suffix):
                 num = num[: -len(suffix)]
                 break
         try:
-            target = float(num)
+            return float(num)
         except ValueError:
-            raise KeyError(f"Cannot read anchor '{spec}': use 'substrate', a {self.label['title']} value "
+            raise KeyError(f"Cannot read '{spec}': use 'substrate', a {self.label['title']} value "
                            f"(e.g. '{self.value_text(self.value[len(self) // 2])}') or 'param=value,...'") from None
-        return int(np.argmin(np.abs(self.value - target)))
 
     def save(self, path: str | Path, with_spectra: bool = False) -> None:
         path = Path(path)

@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT / "python"))
 from tcd import colorimetry as C  # noqa: E402
 from tcd.expr import ExpressionError, evaluate, names_in  # noqa: E402
 from tcd.image_tcd import analyse, layer_classes  # noqa: E402
+from tcd import materials as MAT  # noqa: E402
+from tcd import reliability as REL  # noqa: E402
 from tcd.materials import F_HEX_MONOLAYER, bruggeman, maxwell_garnett, nk, sellmeier  # noqa: E402
 from tcd.reference import Reference, build_reference  # noqa: E402
 from tcd.system import SYSTEMS_DIR, SystemError, load_system  # noqa: E402
@@ -88,6 +90,42 @@ check("Maxwell-Garnett and Bruggeman reduce to host / inclusion at f = 0 / 1",
 check("Bruggeman is symmetric in host and inclusion", np.abs(bruggeman(a, b, 0.3) - bruggeman(b, a, 0.7)).max() < 1e-12)
 n_d = sellmeier(np.array([587.6]), [0.6961663, 0.4079426, 0.8974794], [0.0684043**2, 0.1162414**2, 9.896161**2])
 check("Sellmeier: fused silica n_d = 1.4585", abs(n_d[0].real - 1.4585) < 2e-4)
+
+# 4b. reading n,k files and adding materials to the library
+with tempfile.TemporaryDirectory() as tmp:
+    t = Path(tmp)
+    (t / "plain.txt").write_text("\n".join(["# source: test", "wavelength_nm\tn\tk", "400\t2.0\t0.1", "800\t2.4\t0.0"]))
+    (t / "um.csv").write_text("\n".join(["wl,n", "0.4,2.0", "0.8,2.4"]))
+    (t / "ri.csv").write_text("\n".join(["wl,n", "0.30,2.0", "0.50,2.1", "0.90,2.2", "wl,k", "0.30,0.3", "0.90,0.1"]))
+    a = MAT.read_nk_file(t / "plain.txt"); b = MAT.read_nk_file(t / "um.csv"); c = MAT.read_nk_file(t / "ri.csv")
+    check("n,k files: nm table, um table, refractiveindex.info n + k blocks, metadata",
+          np.allclose(a[0], [400, 800]) and a[3].get("source") == "test" and np.allclose(b[0], [400, 800])
+          and np.allclose(b[2], 0) and np.allclose(c[0], [300, 500, 900]) and np.allclose(c[2], [0.3, 0.7 / 3, 0.1]))
+    name = "ZZ_test_material"
+    target = MAT.MATERIALS_DIR / f"{name}.csv"
+    try:
+        path, warns = MAT.add_material(name, t / "ri.csv", source="synthetic test data")
+        ok = path == target and any("extrapolated" in w for w in warns) is False and name in MAT.library_materials()
+        s_def = json.loads(json.dumps(load_system("sio2_on_si").definition))
+        s_def["layers"] = [{"name": "film", "material": name, "thickness": "oxide_nm"}]
+        ok &= load_system(s_def).n_rows == 1001
+        ok &= raises(lambda: MAT.add_material(name, t / "ri.csv", source="x"), ValueError, "already exists")
+        ok &= raises(lambda: MAT.add_material("SiO2-Franta", t / "ri.csv", source="x"), ValueError, "built-in")
+        ok &= raises(lambda: MAT.add_material("bad name", t / "ri.csv", source="x"), ValueError, "letters")
+        ok &= raises(lambda: MAT.add_material("ZZ_other", t / "ri.csv", source=" "), ValueError, "source")
+        (t / "negk.csv").write_text("\n".join(["400,2,-0.1", "800,2,0"]))
+        ok &= raises(lambda: MAT.add_material("ZZ_other", t / "negk.csv", source="x"), ValueError, "k must be")
+        check("add_material: saved to data/materials, usable by name, mistakes refused", ok)
+    finally:
+        target.unlink(missing_ok=True)
+        MAT._library.cache_clear()
+
+# 4c. reliability building blocks
+check("reliability: chi-3 survival is 1 at 0 and 0.5 at its median",
+      abs(REL.chi3_sf(0.0) - 1) < 1e-12 and abs(REL.chi3_sf(REL.CHI3_MEDIAN) - 0.5) < 1e-6)
+pr = REL.label_prior(np.array([0, 1, 2, 3, 400, 401, 402.0]))
+check("reliability: prior is uniform in the label and caps isolated rows", np.isclose(pr.sum(), 1)
+      and np.allclose(pr[1:3], pr[1]) and pr[4] < 2 * pr[1])
 
 # 5. system files
 systems = sorted(SYSTEMS_DIR.glob("*.jsonc"))
@@ -182,6 +220,21 @@ with tempfile.TemporaryDirectory() as tmp:
     res = analyse(synth(C.XYZ_to_linear(graphene.XYZ[truth]), tmp), graphene, (10, 10, 30, 30))
     got = band_modes(layer_classes(res))
     check(f"synthetic graphene image: layers {got}", got == truth)
+
+    # checks and reliability on a synthetic MoO3 image (the model is exact here)
+    t = [0, 150, 280, 420]
+    img = synth(C.XYZ_to_linear(moo3.XYZ[t]), tmp)
+    res = analyse(img, moo3, (10, 10, 30, 30), checks=[((75, 25, 20, 30), 150.0, "150nm"),
+                                                         ((135, 25, 20, 30), 400.0, "wrong 400nm")])
+    rel = res.reliability[np.isfinite(res.reliability)]
+    good, bad = res.checks
+    check(f"checks: right one agrees ({100 * good['within_tolerance']:.0f} %), wrong one is flagged "
+          f"({100 * bad['within_tolerance']:.0f} %), model error from checks {res.sigma['model']:.2f} dE",
+          good["within_tolerance"] > 0.9 and bad["within_tolerance"] < 0.1 and res.sigma["model_source"] == "checks"
+          and res.sigma["model"] < 1.5)
+    check(f"reliability in [0, 1], high on the exact synthetic 150 nm band "
+          f"({np.nanmedian(res.reliability[20:60, 75:105]):.2f})",
+          rel.min() >= 0 and rel.max() <= 1 and np.nanmedian(res.reliability[20:60, 75:105]) > 0.5)
 
 print("\nall checks passed" if fails == 0 else f"\n{fails} check(s) failed")
 sys.exit(fails > 0)

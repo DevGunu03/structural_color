@@ -1,71 +1,85 @@
 # MATLAB: `tcd_*` functions
 
-MATLAB R2021a or newer (tested on R2025b). No toolboxes, and no CIECAM02 download. Work from this folder. `help <function>` documents every option.
+You need MATLAB R2021a or newer. You do not need toolboxes. Go to this folder before you use the functions. For all options of a function, type `help <function>`.
 
 ```matlab
-addpath tests; run_tests       % prints "all checks passed"
-run_examples                   % maps the five bundled micrographs
-example_own_system             % the whole workflow for your own sample, section by section
+addpath tests; run_tests       % the last line must be "all checks passed"
+run_examples                   % maps the five example micrographs
+example_own_system             % the full procedure for your own sample, step by step
 ```
 
-## The workflow
+## The procedure
 
 ```matlab
-tcd_materials                                            % n,k library and bundled systems
-sys = tcd_load_system('../systems/my_sample.jsonc');     % read + check the system file
-tcd_spectrum(sys, struct('t', [0 100 200]))              % check single structures
-ref = tcd_build_reference(sys, 'Out', 'auto');           % ../refs/my_sample_D65.csv + .json + sheet .png
-res = tcd_map_image('', ref);                            % choose the image, click a bare-substrate region
+tcd_materials                                            % the library and the example systems
+sys = tcd_load_system('../systems/my_sample.jsonc');     % read and examine the system file
+tcd_spectrum(sys, struct('t', [0 100 200]))              % look at some structures
+ref = tcd_build_reference(sys, 'Out', 'auto');           % makes ../refs/my_sample_D65.csv and the sheet
+res = tcd_map_image('', ref, 'Out', '../results/my_map'); % select the image, click the substrate
 disp(res.summary)
+disp(res.checks)                                         % if you gave 'Checks'
 ```
 
-System files are described in [../systems/README.md](../systems/README.md). The bundled ones load by name: `tcd_build_reference('moo3')`, `tcd_build_reference('ps', 'Set', {'oxide_nm', 285})`.
+For the system files, refer to [../systems/README.md](../systems/README.md). The example systems load by name, for example `tcd_build_reference('moo3')`.
 
 ## Functions
 
-| Function | Does |
+| Function | What it does |
 | --- | --- |
-| `tcd_load_system` | reads a system file (`//` comments allowed) and checks every key, material and expression; expands the sweep into candidate rows. `'Set'` changes constants |
-| `tcd_spectrum` | reflectance spectrum, colour and stack of chosen structures; plots them when called without output |
-| `tcd_build_reference` | TMM spectrum and colour (XYZ, CAM02-UCS, CIELAB, sRGB) of every candidate; `'Out'` saves CSV + JSON + reference sheet. `'Illuminant'`, `'NA'` override the file |
-| `tcd_plot_reference` | the reference sheet: colour strip, ΔE from the substrate, ΔE to the nearest look-alike, a′b′ path, colour chart |
-| `tcd_map_image` | calibrates a micrograph on the bare substrate (and optional anchors) and assigns every pixel to the nearest candidate; works with the reference of any system |
-| `tcd_tmm` | the transfer-matrix reflectance itself: normal incidence, one oblique angle, or the cone of an objective (`'NA'`) |
-| `tcd_materials` | lists the library; returns n + ik of a library name, an n,k file or a constant |
-| `tcd_load_reference`, `tcd_save_reference` | references in the CSV + JSON format shared with Python |
-| `tcd_measure_gamma` | camera decoding exponent from an exposure series |
-| `tcd_colour` | colour conversions (sRGB, XYZ, CAM02-UCS, CIELAB, reflectance to XYZ) |
+| `tcd_load_system` | Reads a system file. Examines all keys, materials and expressions. Makes the list of structures. `'Set'` changes constants. |
+| `tcd_spectrum` | Shows the reflectance, the colour and the layer stack of some structures. |
+| `tcd_build_reference` | Calculates the colour of each structure. `'Out'` saves the reference and the reference sheet. |
+| `tcd_plot_reference` | Draws the reference sheet. |
+| `tcd_map_image` | Makes a thickness or layer map of a micrograph, with a reliability score and optional checks. |
+| `tcd_add_material` | Adds the optical constants of a material to the library (`data/materials/`). |
+| `tcd_materials` | Shows the library. Gives n + ik of a material. |
+| `tcd_tmm` | The transfer-matrix calculation. |
+| `tcd_load_reference`, `tcd_save_reference` | Read and write references. Python uses the same files. |
+| `tcd_measure_gamma` | Measures the camera gamma from images with different exposure times. |
+| `tcd_colour` | Colour conversions. |
 
-`private/` holds the helpers:
+The folder `private/` contains the helper functions.
 
-- `expr_eval`: the expression language;
-- `system_stack`: one candidate's layer stack;
-- `read_jsonc`, `load_nk` and `ema_mix`: reading files, n,k data and mixtures;
-- the colour conversions;
-- image I/O and region selection;
-- the nearest-reference search and the figures.
+## Options of `tcd_map_image`
 
-## The transfer-matrix code
+Regions are `[x y width height]` in pixels. MATLAB counts pixels from 1.
 
-`tcd_tmm.m` replaces `legacy/TransferMatrix/TransferMatrix_packing.m` and `TransferMatrix_multiple.m`. The matrices and the reflectance are the same, checked against spectra saved from the old code. The differences:
+| Option | Use |
+| --- | --- |
+| `'Substrate'` | The bare-substrate region: `[x y w h]`, `'click'` (default), `'auto'` or a colour `[r g b]`. |
+| `'Anchors'` | Regions of known structure for the calibration: `{'1L', [x y w h]; ...}`. |
+| `'Checks'` | Regions of known thickness for comparison only: `{'257nm', [x y w h]; ...}`. |
+| `'Gamma'` | How to decode the camera values: a number, or `'srgb'`. The default 1 is a linear camera. |
+| `'MaxValue'` | Use only structures with a label of this value or less. |
+| `'ColourError'` | The colour error of the model in ΔE. The default comes from the checks, or is 3. |
+| `'Tolerance'` | How near to the correct value a result must be to count as correct. |
+| `'MinReliability'` | The minimum score for the "only where reliable" panel. The default is 0.5. |
+| `'Out'` | The name of the result files. Without it, the function saves no files. |
 
-- **Vectorised over wavelength.**
-- **Any stack.** Materials, thicknesses and mixtures come from a system file. The old code applied Maxwell-Garnett only to layers named `'PS-beads'` and read the fill fractions with `eval('vol_incl_' + i)`.
-- **Oblique incidence and the NA cone average.**
-- **R is the true reflectance.** The lamp and the observer are applied once, in the colorimetry. The old code returned R·D65 / (12·max(R·D65)), so every structure was rescaled differently.
-
-The header of `tcd_tmm.m` explains the method and these changes in full. The field-profile, absorption and photocurrent parts of the original are not needed for colour and remain in `legacy/TransferMatrix/`.
-
-## `tcd_map_image` results
+## Results of `tcd_map_image`
 
 | Field | Content |
 | --- | --- |
-| `value` | label of the matched candidate for every pixel (thickness, effective layer number, ...); NaN = unassigned |
-| `classes` | whole-number labels only: classes after rounding half up and a 5×5 majority filter; −1 = unassigned |
-| `residual` | ΔE between the pixel and its match |
-| `altValue`, `altResidual` | best candidate more than `label.gap` away, and its ΔE; close to `residual` means the colour cannot decide |
-| `tcd` | ΔE from the simulated substrate (absolute) |
-| `summary` | table of fractions per class or label bin, unassigned share, ambiguous share |
-| `calibrated`, `correction`, `regions`, `settings` | calibrated image, colour-correction matrix, regions used, options |
+| `value` | The label of each pixel (thickness, layer number, ...). NaN means no match. |
+| `reliability` | The score of each pixel, from 0 to 1: `fit .* uniqueness .* consistency`. |
+| `fit`, `uniqueness`, `consistency` | The three parts of the score. |
+| `checks` | A table: the result of each check. |
+| `sigma` | The colour error that the score uses: camera noise, model error, total. |
+| `classes` | Layer numbers only: the layer number of each pixel. −1 means no match. |
+| `residual` | The colour difference between each pixel and its match. |
+| `altValue`, `altResidual` | The best different structure, and its colour difference. |
+| `tcd` | The colour difference from the substrate. |
+| `summary` | A table of the areas and the share of reliable pixels. |
 
-Regions are `[x y w h]` with a **1-based** top-left corner (Python uses 0-based).
+> **CAUTION:** A high reliability score does not prove that a thickness is correct. If the model is wrong (for example an incorrect oxide thickness), a wrong thickness can get a high score. Use `'Checks'` to find these errors.
+
+## The transfer-matrix code
+
+`tcd_tmm.m` replaces `legacy/TransferMatrix/TransferMatrix_packing.m` and `TransferMatrix_multiple.m`. It uses the same matrices. The tests compare it with spectra from the old code. The changes are:
+
+- It calculates all wavelengths at the same time.
+- A system file gives the layers and the mixtures. The old code used the Maxwell-Garnett equation only for layers with the name `'PS-beads'`.
+- It can calculate oblique incidence and the light cone of an objective (`'NA'`).
+- It gives the true reflectance. The old code gave R·D65 / (12·max(R·D65)), which changed the scale of each structure differently.
+
+The header of `tcd_tmm.m` explains the method and the changes in more detail.

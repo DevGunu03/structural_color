@@ -36,7 +36,7 @@ The example is a film whose thickness varies across the sample, on 90 nm SiO₂ 
 ### 1. Gather what the model needs
 
 - **The stack**, from the light side down: every layer, its material, and its thickness (fixed or varying). Then the substrate, treated as infinitely thick.
-- **Optical constants (n, k) for every material** over 360–830 nm. Check the library first (`materials` command). Otherwise put a file in `data/materials/` (format in [data/materials/README.md](../data/materials/README.md)), or use a Cauchy, Sellmeier or constant model.
+- **Optical constants (n, k) for every material** over 360–830 nm. Look in the library first (`materials` command). If your material is not there, add it with the `add-material` command ([data/materials/README.md](../data/materials/README.md)). You can also use a Cauchy, Sellmeier or constant model.
 - **What varies** across the sample (film thickness, number of layers, coverage, ...), and over what range.
 - **What the bare region is.** You will mark a region of known structure, normally bare substrate, to calibrate the camera. That structure must be the first candidate.
 
@@ -101,10 +101,11 @@ python python/run_tcd.py map --ref refs/my_film_D65.csv --image my_image.png --i
 
 Click two corners of a bare-substrate region. Then:
 
-- **Read the residual panel.** It marks colours the model cannot produce.
-- **Read the `covered px with an alternative ... within 2 dE` line of the summary.** It gives the share of the map that colour cannot settle.
+- **Read the reliability panel.** Each pixel has a score from 0 to 1 (fit × uniqueness × consistency). A low score tells you not to use that pixel.
+- **Read the residual panel.** It shows colours that the model cannot make.
+- **Read the `covered px with an alternative ... within 2 dE` line of the summary.** It gives the share of the map that colour cannot decide.
 
-If you know the structure of a region, for example from AFM, SEM or Raman, add it as an anchor: `--anchor 120nm@x,y,w,h`. Anchors refine the camera calibration from per-channel gains to a full 3×3 colour matrix.
+A high score does not prove that a value is correct, because the score comes from the model. Compare the map with regions that you measured with a different method (AFM, SEM, Raman). Give them as checks: `--check 120nm@x,y,w,h`. The software does not use checks for the calibration. If you want a region to improve the calibration, give it as an anchor: `--anchor 120nm@x,y,w,h`. Anchors change the camera correction from three gains to a 3×3 colour matrix.
 
 ## The bundled systems
 
@@ -162,7 +163,7 @@ Anywhere a material is expected you can write:
 
 | Form | Example | Meaning |
 | --- | --- | --- |
-| library name | `"SiO2-Franta"` | a column of `data/nk_library.csv`; case, `-`, `_` and spaces are ignored |
+| library name | `"SiO2-Franta"`, `"MoS2"` | a built-in material of `data/nk_library.csv`, or a material added with `add-material` (`data/materials/`); case, `-`, `_` and spaces are ignored |
 | file | `"data/materials/MoS2.csv"` | (wavelength, n, k) file; looked up next to the system file, then from the repository root, then in `data/materials/` |
 | your name | `"top_layer"` | an entry of `materials` (takes precedence over the library) |
 | number | `1.45` | constant, non-absorbing |

@@ -1,8 +1,9 @@
 """Optical constants (n, k) and effective-medium mixing.
 
 Sources of n + ik (k > 0 means absorption), all returned on the wavelengths asked for (nm):
-  * the library ``data/nk_library.csv``, a CSV export of the ``Index_of_Refraction_library.xls``
-    used by the original MATLAB transfer-matrix code, so both codes see identical values;
+  * the library: ``data/nk_library.csv`` (a CSV export of the ``Index_of_Refraction_library.xls``
+    used by the original MATLAB transfer-matrix code, so both codes see identical values) plus
+    one file per added material in ``data/materials/`` (``add_material`` / ``add-material``);
   * a text file of (wavelength, n[, k]) columns: wavelength in nm, or in um if every value
     is below 50; comma, tab or space separated; header lines are skipped;
   * a constant, or a Cauchy or Sellmeier dispersion formula (``cauchy``, ``sellmeier``).
@@ -17,6 +18,8 @@ footing, e.g. a 50/50 rough interface) or ``linear`` (volume-averaged permittivi
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -27,10 +30,27 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIR = next((p for p in (_HERE.parents[1] / "data", _HERE.parent / "data") if (p / "nk_library.csv").exists()),
                 _HERE.parents[1] / "data")
 LIBRARY_CSV = DATA_DIR / "nk_library.csv"
+MATERIALS_DIR = DATA_DIR / "materials"            # added materials: one file per material, part of the library
+NK_SUFFIXES = (".csv", ".txt", ".dat", ".nk", ".tsv")
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 # Close-packed sphere fractions used by the PS-bead model
 F_HEX_MONOLAYER = np.pi / (3 * np.sqrt(3))  # 0.6046, one hexagonal layer in a slab of height d
 F_CLOSE_PACKED = np.pi / (3 * np.sqrt(2))  # 0.7405, bulk fcc/hcp packing
+
+
+@dataclass
+class Material:
+    name: str
+    wl: np.ndarray          # nm, increasing
+    n: np.ndarray
+    k: np.ndarray
+    origin: str             # 'nk_library.csv' or the file in data/materials/
+    meta: dict = field(default_factory=dict)   # source, reference, notes, added (from '# key: value' lines)
+
+    @property
+    def source(self) -> str:
+        return self.meta.get("source", "")
 
 
 def _key(name: str) -> str:
@@ -38,69 +58,186 @@ def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def parse_nk_text(text: str, units: str = "auto", where: str = "file") -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """(wavelength nm, n, k, metadata) from the text of an n,k file.
+
+    Understands:
+      * columns wavelength, n[, k] separated by commas, tabs, spaces or semicolons;
+      * header lines (any line that is not numbers) and '# key: value' metadata lines;
+      * the refractiveindex.info CSV export, where an 'wl,n' block is followed by an 'wl,k' block.
+    Wavelengths are nm, or um when every value is below 50 (``units='auto'``); 'nm' or 'um'
+    forces the unit.
+    """
+    meta, blocks, cur = {}, [], None
+    for line in text.splitlines():
+        s = line.strip().lstrip("﻿")
+        if not s:
+            continue
+        if s.startswith("#"):
+            m = re.match(r"#\s*([A-Za-z][A-Za-z _]*?)\s*:\s*(.*)$", s)
+            if m:
+                meta[m.group(1).strip().lower()] = m.group(2).strip()
+            continue
+        toks = [t for t in re.split(r"[,\s;]+", s) if t]
+        try:
+            vals = [float(t) for t in toks]
+        except ValueError:          # a header line starts a new block
+            cur = dict(header=s.lower(), rows=[])
+            blocks.append(cur)
+            continue
+        if cur is None:
+            cur = dict(header="", rows=[])
+            blocks.append(cur)
+        cur["rows"].append(vals)
+    blocks = [b for b in blocks if b["rows"]]
+    if not blocks:
+        raise ValueError(f"{where}: no (wavelength, n[, k]) rows found")
+
+    def table(b):
+        w = min(len(r) for r in b["rows"])
+        if w < 2:
+            raise ValueError(f"{where}: rows need at least two columns (wavelength, n)")
+        return np.array([r[:w] for r in b["rows"]], dtype=float)
+
+    if len(blocks) == 1:
+        d = table(blocks[0])
+        wl, n = d[:, 0], d[:, 1]
+        k = d[:, 2] if d.shape[1] > 2 else np.zeros_like(n)
+    elif len(blocks) == 2:
+        d1, d2 = table(blocks[0]), table(blocks[1])
+        is_k = [bool(re.search(r"(^|[^a-z])k([^a-z]|$)", b["header"])) for b in blocks]
+        dn, dk = (d2, d1) if is_k[0] and not is_k[1] else (d1, d2)
+        wl, n = dn[:, 0], dn[:, 1]
+        o = np.argsort(dk[:, 0])
+        k = np.interp(wl, dk[o, 0], dk[o, 1])
+    else:
+        raise ValueError(f"{where}: found {len(blocks)} separate tables; expected one (wavelength, n, k) table "
+                         f"or an n table followed by a k table")
+    if units == "um" or (units == "auto" and wl.max() < 50):
+        wl = wl * 1000.0
+    elif units not in ("auto", "nm"):
+        raise ValueError("units must be 'auto', 'nm' or 'um'")
+    o = np.argsort(wl)
+    wl, n, k = wl[o], n[o], k[o]
+    if np.any(np.diff(wl) == 0):
+        raise ValueError(f"{where}: the same wavelength appears twice")
+    return wl, n, k, meta
+
+
+def read_nk_file(path: str | Path, units: str = "auto") -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    return parse_nk_text(Path(path).read_text(encoding="utf-8", errors="replace"), units, str(path))
+
+
+def load_nk_file(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(wavelength nm, n, k) of an n,k file; see ``parse_nk_text`` for the formats."""
+    wl, n, k, _ = read_nk_file(path)
+    return wl, n, k
+
+
 @lru_cache(maxsize=None)
-def _library(path: str = str(LIBRARY_CSV)) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    raw = np.genfromtxt(path, delimiter=",", names=True)
+def _library() -> dict[str, Material]:
+    """Library materials by normalised name: nk_library.csv first, then the files in data/materials/."""
+    raw = np.genfromtxt(LIBRARY_CSV, delimiter=",", names=True)
     cols = raw.dtype.names
     wl = np.asarray(raw[cols[0]], dtype=float)
     out = {}
     for c in cols[1:]:
-        if c.endswith("_n"):
+        if c.endswith("_n") and c[:-2] + "_k" in cols:
             base = c[:-2]
-            k_col = base + "_k"
-            if k_col in cols:
-                out[_key(base)] = (wl, np.asarray(raw[c], float), np.asarray(raw[k_col], float), base)
+            out[_key(base)] = Material(base, wl, np.asarray(raw[c], float), np.asarray(raw[base + "_k"], float),
+                                       "data/nk_library.csv", {"source": "nk_library.csv (Index_of_Refraction_library.xls)"})
+    if MATERIALS_DIR.is_dir():
+        for f in sorted(MATERIALS_DIR.iterdir()):
+            if f.suffix.lower() not in NK_SUFFIXES or _key(f.stem) in out:
+                continue                      # a built-in name always wins; add_material refuses clashes
+            try:
+                w, n, k, meta = read_nk_file(f)
+            except ValueError:
+                continue
+            out[_key(f.stem)] = Material(meta.get("name", f.stem), w, n, k, f"data/materials/{f.name}", meta)
     return out
 
 
 def library_materials() -> list[str]:
     """Names of the library materials (any spelling that differs only in case, '-', '_' or spaces works)."""
-    return sorted((v[3] for v in _library().values()), key=str.lower)
+    return sorted((m.name for m in _library().values()), key=str.lower)
 
 
-def load_nk_file(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Read a (wavelength, n[, k]) text file: comma, tab or space separated, header lines skipped.
+def library_entries() -> list[Material]:
+    return sorted(_library().values(), key=lambda m: m.name.lower())
 
-    Wavelengths are in nm, or in um when every value is below 50 (converted to nm).
+
+def add_material(name: str, source_file: str | Path, source: str, reference: str = "", notes: str = "",
+                 units: str = "auto", replace: bool = False, folder: Path | None = None) -> tuple[Path, list[str]]:
+    """Check an n,k file and save it as ``data/materials/<name>.csv``, part of the library from then on.
+
+    Returns the new file and a list of warnings (e.g. wavelengths that will be extrapolated).
+    Refuses a name that the library already has, unless ``replace`` and the existing entry is an
+    added material (built-in entries of nk_library.csv are never replaced).
     """
-    rows = []
-    for line in Path(path).read_text().replace(",", " ").replace(";", " ").splitlines():
-        try:
-            vals = [float(v) for v in line.split()]
-        except ValueError:  # header or comment line
-            continue
-        if len(vals) >= 2:
-            rows.append(vals[:3])
-    if not rows:
-        raise ValueError(f"no (wavelength, n[, k]) rows found in {path}")
-    width = min(len(r) for r in rows)
-    data = np.array([r[:width] for r in rows])
-    wl = data[:, 0] * (1000.0 if data[:, 0].max() < 50 else 1.0)
-    n = data[:, 1]
-    k = data[:, 2] if data.shape[1] > 2 else np.zeros_like(n)
-    order = np.argsort(wl)
-    return wl[order], n[order], k[order]
+    folder = Path(folder) if folder else MATERIALS_DIR
+    if not _NAME.match(name):
+        raise ValueError(f"name '{name}': use letters, digits, '-' and '_', starting with a letter (e.g. MoS2_bulk)")
+    if not source.strip():
+        raise ValueError("give the source of the data (paper, database or measurement), so others can trust it")
+    existing = _library().get(_key(name))
+    target = folder / f"{name}.csv"
+    if existing is not None:
+        if existing.origin == "data/nk_library.csv":
+            raise ValueError(f"'{name}' is already a built-in library material ({existing.name}); choose another name")
+        if not replace:
+            raise ValueError(f"'{name}' already exists ({existing.origin}); add --replace to overwrite it")
+    wl, n, k, _ = read_nk_file(source_file, units)
+    problems = []
+    if len(wl) < 2:
+        problems.append("need at least two wavelengths")
+    if not np.all(np.isfinite(np.r_[wl, n, k])):
+        problems.append("the table contains empty or non-numeric values")
+    if np.any(n <= 0):
+        problems.append("n must be positive")
+    if np.any(k < 0):
+        problems.append("k must be zero or positive (this code uses n + ik, with k > 0 for absorption)")
+    if problems:
+        raise ValueError(f"{source_file}: " + "; ".join(problems))
+    warnings = []
+    if wl[0] > 360:
+        warnings.append(f"data start at {wl[0]:g} nm: 360-{wl[0]:g} nm will be extrapolated")
+    if wl[-1] < 830:
+        warnings.append(f"data end at {wl[-1]:g} nm: {wl[-1]:g}-830 nm will be extrapolated")
+    if wl[0] > 400 or wl[-1] < 700:
+        warnings.append("the data do not cover 400-700 nm: the simulated colours will be unreliable")
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = [f"# name: {name}", f"# source: {source.strip()}"]
+    if reference.strip():
+        lines.append(f"# reference: {reference.strip()}")
+    if notes.strip():
+        lines.append(f"# notes: {notes.strip()}")
+    lines += [f"# added: {date.today().isoformat()}", f"# imported from: {Path(source_file).name}",
+              "wavelength_nm,n,k"]
+    lines += [f"{a:.6g},{b:.6g},{c:.6g}" for a, b, c in zip(wl, n, k)]
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _library.cache_clear()
+    return target, warnings
 
 
 def nk(material: str | complex | float, wavelengths: np.ndarray) -> np.ndarray:
     """Complex refractive index n + ik on ``wavelengths`` (nm).
 
-    ``material`` can be a library name (e.g. 'SiO2-Franta'), a path to an n,k
-    text file, or a constant number. Interpolation and extrapolation are linear,
-    matching ``interp1(..., 'linear', 'extrap')`` in the MATLAB code.
+    ``material`` can be a library name (e.g. 'SiO2-Franta', or an added material such as
+    'MoS2'), a path to an n,k text file, or a constant number. Interpolation and extrapolation
+    are linear, matching ``interp1(..., 'linear', 'extrap')`` in the MATLAB code.
     """
     wavelengths = np.asarray(wavelengths, dtype=float)
     if isinstance(material, (int, float, complex, np.number)):
         return np.full(wavelengths.shape, complex(material))
     p = Path(str(material))
-    if p.suffix and p.exists():
+    if p.suffix.lower() in NK_SUFFIXES and p.exists():
         wl, n, k = load_nk_file(p)
     else:
-        lib = _library()
-        key = _key(str(material))
-        if key not in lib:
+        m = _library().get(_key(str(material)))
+        if m is None:
             raise KeyError(f"Material '{material}' not in library. Available: {', '.join(library_materials())}")
-        wl, n, k, _ = lib[key]
+        wl, n, k = m.wl, m.n, m.k
     return _interp_extrap(wl, n, wavelengths) + 1j * _interp_extrap(wl, k, wavelengths)
 
 

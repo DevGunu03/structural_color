@@ -175,28 +175,41 @@ def cmd_map(args):
         roi = _resolve_roi(spec, preview, scale, label, args.interactive, args.anchor_size)
         anchors.append((roi, ref.find(label), label))
 
+    checks = []
+    for a in args.check or []:
+        label, spec = a.split("@", 1)
+        roi = _resolve_roi(spec, preview, scale, f"check {label}", args.interactive, args.anchor_size)
+        checks.append((roi, ref.parse_value(label), label))
+
     gamma = args.gamma if args.gamma == "srgb" else float(args.gamma)
     res = analyse(image, ref, substrate, anchors, max_side=args.max_side, smooth_sigma=args.sigma,
                   max_residual=args.max_residual, correction_mode=args.correction, gamma=gamma,
-                  ambiguity_gap=args.gap)
+                  ambiguity_gap=args.gap, checks=checks, colour_error=args.colour_error, tolerance=args.tolerance)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     result_figure(res, out.with_suffix(".png"), title=f"{Path(image).name}  |  {ref.name}: "
-                                                      f"{ref.meta.get('description') or ref.meta.get('stack', '')}")
+                                                      f"{ref.meta.get('description') or ref.meta.get('stack', '')}",
+                  min_reliability=args.min_reliability)
     rows = summary_rows(res)
     with open(out.with_name(out.name + "_summary.csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
     maps = dict(tcd=res.tcd, value=res.value, residual=res.residual, alt_value=res.alt_value,
-                alt_residual=res.alt_residual)
+                alt_residual=res.alt_residual, reliability=res.reliability, fit=res.fit,
+                uniqueness=res.uniqueness, consistency=res.consistency)
     if ref.classes:
         maps["classes"] = layer_classes(res)
     np.savez_compressed(out.with_name(out.name + "_maps.npz"), **maps)
     info = dict(image=str(image), reference=str(args.ref), label=ref.label,
                 anchors=[a.__dict__ for a in res.anchors], correction_matrix=res.correction.tolist(),
-                settings=res.settings)
+                colour_error=res.sigma, checks=res.checks, settings=res.settings)
     out.with_name(out.name + "_run.json").write_text(json.dumps(info, indent=2, default=str))
+    if res.checks:
+        with open(out.with_name(out.name + "_checks.csv"), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(res.checks[0]))
+            w.writeheader()
+            w.writerows(res.checks)
 
     print(f"{Path(image).name}: substrate ROI {substrate}, anchors {[(a.name, a.roi) for a in res.anchors[1:]]}")
     print(f"  median residual (assigned) = {np.nanmedian(res.residual[res.assigned]):.2f}, "
@@ -204,6 +217,18 @@ def cmd_map(args):
     for r in rows:
         if r["fraction"] > 0.005:
             print(f"  {r['item']:>14s}: {100 * r['fraction']:5.1f} %   median residual {r['median_residual']:.2f}")
+    sg = res.sigma
+    print(f"  reliability: colour error {sg['total']:.2f} dE (camera noise {sg['noise']:.2f}, model {sg['model']:.2f} "
+          f"from {sg['model_source']}), tolerance {res.settings['tolerance']:g} {ref.label.get('unit', '')}")
+    unit = ref.label.get("unit", "")
+    for c in res.checks:
+        verdict = "OK" if c["within_tolerance"] >= 0.5 else "DISAGREES"
+        print(f"  check {c['check']:>10s}: map median {c['median_value']:.4g} {unit} vs known {c['known']:g}; "
+              f"{100 * c['within_tolerance']:.0f} % of pixels within tolerance, median reliability "
+              f"{c['median_reliability']:.2f}  [{verdict}]")
+    if res.checks and all(c["within_tolerance"] < 0.5 for c in res.checks):
+        print("  WARNING: the map disagrees with every check. Do not trust it: check the system file "
+              "(oxide thickness, optical constants), the camera gamma and the substrate region.")
     print(f"  -> {out.with_suffix('.png')}")
 
 
@@ -225,7 +250,7 @@ def cmd_gamma(args):
 
 
 def cmd_materials(args):
-    from tcd.materials import library_materials, nk
+    from tcd.materials import library_entries, nk
     from tcd.system import SYSTEMS_DIR, read_system_file
 
     if args.show:
@@ -235,8 +260,17 @@ def cmd_materials(args):
         for w, v in zip(wl, n):
             print(f"  {w:5.0f} nm   n = {v.real:.4f}   k = {v.imag:.4f}")
         return
-    print("n,k library (data/nk_library.csv), usable by name in system files:")
-    print("  " + ", ".join(library_materials()))
+    entries = library_entries()
+    builtin = [m.name for m in entries if m.origin == "data/nk_library.csv"]
+    added = [m for m in entries if m.origin != "data/nk_library.csv"]
+    print("n,k library, usable by name in system files:")
+    print("  built in (data/nk_library.csv): " + ", ".join(builtin))
+    if added:
+        print("  added (data/materials/):")
+        for m in added:
+            print(f"    {m.name:<16s} {m.wl[0]:.0f}-{m.wl[-1]:.0f} nm   source: {m.source or '(not given)'}")
+    else:
+        print("  added (data/materials/): none yet; add one with the add-material command")
     print("\nBundled systems (systems/), usable as --system <name>:")
     for f in sorted(SYSTEMS_DIR.glob("*.jsonc")):
         try:
@@ -244,6 +278,22 @@ def cmd_materials(args):
         except Exception as e:  # noqa: BLE001 - listing only
             desc = f"(cannot read: {e})"
         print(f"  {f.stem:<16s} {desc}")
+
+
+def cmd_add_material(args):
+    from tcd.materials import add_material, nk
+
+    path, warnings = add_material(args.name, args.file, args.source, args.reference or "", args.notes or "",
+                                  args.units, args.replace)
+    wl = np.array([450, 550, 650], float)
+    v = nk(args.name, wl)
+    print(f"Added '{args.name}' -> {path}")
+    print("  " + "   ".join(f"{w:.0f} nm: n = {x.real:.3f}, k = {x.imag:.3f}" for w, x in zip(wl, v)))
+    for w in warnings:
+        print(f"  WARNING: {w}")
+    print(f'  Use it in a system file as  "material": "{args.name}"')
+    print(f"  To share it: commit {path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path} "
+          f"and open a pull request.")
 
 
 def main(argv=None):
@@ -292,6 +342,15 @@ def main(argv=None):
     m.add_argument("--max-value", "--t-max", "--max-layers", dest="max_value", type=float,
                    help="only consider candidates whose label is <= this (prior knowledge, e.g. from AFM)")
     m.add_argument("--gap", type=float, help="ambiguity gap in label units (default: the reference's)")
+    m.add_argument("--check", action="append", metavar="VALUE@REGION",
+                   help="region of known thickness (e.g. from AFM), compared with the map but not used for "
+                        "calibration: 230nm@120,40,30,30 or 2L@colour:r,g,b (repeatable)")
+    m.add_argument("--colour-error", type=float,
+                   help="model colour error in dE for the reliability score (default: from the checks, else 3)")
+    m.add_argument("--tolerance", type=float,
+                   help="how close (label units) counts as right (default: half the gap, or the same class)")
+    m.add_argument("--min-reliability", type=float, default=0.5,
+                   help="reliability below which the figure greys a pixel out in the 'reliable only' map")
     m.set_defaults(func=cmd_map)
 
     g = sub.add_parser("gamma", help="measure the camera's decoding exponent from an exposure series")
@@ -301,20 +360,28 @@ def main(argv=None):
     g.set_defaults(func=cmd_gamma)
 
     mt = sub.add_parser("materials", help="list the n,k library and the bundled systems")
-    mt.add_argument("--show", metavar="NAME", help="print n and k of one library material")
+    mt.add_argument("--show", metavar="NAME", help="print n and k of one library material (or an n,k file)")
     mt.set_defaults(func=cmd_materials)
+
+    am = sub.add_parser("add-material", help="add an n,k file to the library (data/materials/<NAME>.csv)")
+    am.add_argument("name", help="library name, e.g. MoS2 (letters, digits, - and _)")
+    am.add_argument("file", help="(wavelength, n, k) file: CSV/TXT, nm or um, or a refractiveindex.info CSV export")
+    am.add_argument("--source", required=True, help="where the data come from (paper, database, own measurement)")
+    am.add_argument("--reference", help="DOI or URL")
+    am.add_argument("--notes", help="anything a user should know (crystal axis, film or bulk, ...)")
+    am.add_argument("--units", default="auto", choices=["auto", "nm", "um"],
+                    help="wavelength unit of the file (auto: um if every value is below 50)")
+    am.add_argument("--replace", action="store_true", help="overwrite an added material of the same name")
+    am.set_defaults(func=cmd_add_material)
 
     args = p.parse_args(argv)
     if getattr(args, "max_side", None) == 0:
         args.max_side = None
     try:
         args.func(args)
-    except (ValueError, KeyError, FileNotFoundError) as e:
-        from tcd.expr import ExpressionError
-        from tcd.system import SystemError as SysErr
-        if isinstance(e, (SysErr, ExpressionError, KeyError, FileNotFoundError)):
-            raise SystemExit(f"error: {e}") from None
-        raise
+    except (ValueError, KeyError, FileNotFoundError) as e:   # user mistakes: one line, no traceback
+        msg = e.args[0] if isinstance(e, KeyError) and e.args else e
+        raise SystemExit(f"error: {msg}") from None
 
 
 if __name__ == "__main__":

@@ -147,11 +147,17 @@ def _draw_rois(ax, result: TCDResult):
         ax.add_patch(Rectangle((x, y), w, h, fill=False, ec="black", lw=0.6, ls="--"))
         ax.text(x, y - 3, a.name, color="white", fontsize=7, va="bottom",
                 bbox=dict(fc="black", alpha=0.5, pad=1, lw=0))
+    for c in result.checks:
+        x, y, w, h = (v * result.scale for v in c["roi"])
+        ok = c["within_tolerance"] >= 0.5
+        ax.add_patch(Rectangle((x, y), w, h, fill=False, ec="lime" if ok else "red", lw=1.5))
+        ax.text(x, y + h + 3, f"check {c['check']}: {c['median_value']:.4g}", color="white", fontsize=7, va="top",
+                bbox=dict(fc="darkgreen" if ok else "darkred", alpha=0.7, pad=1, lw=0))
 
 
-def result_figure(result: TCDResult, path, title: str = "") -> None:
+def result_figure(result: TCDResult, path, title: str = "", min_reliability: float = 0.5) -> None:
     ref = result.reference
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9.5))
+    fig, axes = plt.subplots(2, 4, figsize=(21, 9.5))
     a = axes.ravel()
 
     a[0].imshow(result.image)
@@ -165,30 +171,45 @@ def result_figure(result: TCDResult, path, title: str = "") -> None:
     _cbar(fig, im, a[2], label="ΔE from substrate (CAM02-UCS)")
     a[2].set_title("TCD map (absolute ΔE)")
 
+    def label_map(ax, values, title):
+        if ref.classes:
+            ks = list(ref.class_range())
+            cls = np.where(np.isfinite(values), np.floor(np.nan_to_num(values) + 0.5), -1)
+            cmap = ListedColormap([UNASSIGNED] + [tuple(ref.sRGB[ref.find(str(k))]) for k in ks])
+            norm = BoundaryNorm(np.arange(ks[0] - 1.5, ks[-1] + 1.5), cmap.N)
+            im_ = ax.imshow(cls, cmap=cmap, norm=norm, interpolation="nearest")
+            cb = _cbar(fig, im_, ax, ticks=np.arange(ks[0] - 1, ks[-1] + 1))
+            cb.ax.set_yticklabels(["n/a"] + [ref.class_name(k) for k in ks])
+        else:
+            cmap = plt.get_cmap("viridis").copy()
+            cmap.set_bad(UNASSIGNED)
+            im_ = ax.imshow(np.ma.masked_invalid(values), cmap=cmap, vmin=np.nanmin(ref.value), vmax=np.nanmax(ref.value))
+            _cbar(fig, im_, ax, label=ref.axis_title())
+        ax.set_title(title)
+
     if ref.classes:
-        cls = layer_classes(result)
-        ks = list(ref.class_range())
-        colours = [UNASSIGNED] + [tuple(ref.sRGB[ref.find(str(k))]) for k in ks]
-        cmap = ListedColormap(colours)
-        norm = BoundaryNorm(np.arange(ks[0] - 1.5, ks[-1] + 1.5), cmap.N)
-        im = a[3].imshow(cls, cmap=cmap, norm=norm, interpolation="nearest")
-        cb = _cbar(fig, im, a[3], ticks=np.arange(ks[0] - 1, ks[-1] + 1))
-        cb.ax.set_yticklabels(["unassigned"] + [ref.class_name(k) for k in ks])
-        a[3].set_title(f"{ref.label.get('title', 'Class')} (shown in simulated colours)")
+        cls = layer_classes(result).astype(float)
+        cls[cls < 0] = np.nan
+        label_map(a[3], cls, f"{ref.label.get('title', 'Class')} (simulated colours)")
     else:
-        cmap = plt.get_cmap("viridis").copy()
-        cmap.set_bad(UNASSIGNED)
-        im = a[3].imshow(np.ma.masked_invalid(result.value), cmap=cmap, vmin=np.nanmin(ref.value),
-                         vmax=np.nanmax(ref.value))
-        _cbar(fig, im, a[3], label=ref.axis_title())
-        a[3].set_title(f"{ref.label.get('title', 'Value')} (nearest reference, grey = unassigned)")
+        label_map(a[3], result.value, f"{ref.label.get('title', 'Value')} (grey = unassigned)")
+
+    rel = result.reliability if result.reliability is not None else np.full(result.value.shape, np.nan)
+    cmap = plt.get_cmap("RdYlGn").copy()
+    cmap.set_bad(UNASSIGNED)
+    im = a[4].imshow(np.ma.masked_invalid(rel), cmap=cmap, vmin=0, vmax=1)
+    _cbar(fig, im, a[4], label="reliability (fit × uniqueness × consistency)")
+    a[4].set_title(f"Reliability (colour error {result.sigma.get('total', float('nan')):.1f} ΔE)")
+
+    shown = np.where(np.nan_to_num(rel) >= min_reliability, result.value, np.nan)
+    label_map(a[5], shown, f"Only where reliability ≥ {min_reliability:g}")
 
     cmap = plt.get_cmap("magma").copy()
-    im = a[4].imshow(result.residual, cmap=cmap, vmin=0, vmax=max(result.settings["max_residual"] * 1.5, 1))
-    _cbar(fig, im, a[4], label="distance to nearest reference (ΔE)")
-    a[4].set_title(f"Match residual (unassigned above {result.settings['max_residual']:g})")
+    im = a[6].imshow(result.residual, cmap=cmap, vmin=0, vmax=max(result.settings["max_residual"] * 1.5, 1))
+    _cbar(fig, im, a[6], label="distance to nearest reference (ΔE)")
+    a[6].set_title(f"Match residual (unassigned above {result.settings['max_residual']:g})")
 
-    ax = a[5]
+    ax = a[7]
     pts = result.Jab.reshape(-1, 3)
     step = max(1, len(pts) // 60000)
     ax.hexbin(pts[::step, 1], pts[::step, 2], gridsize=90, bins="log", cmap="Greys", mincnt=1)
@@ -200,9 +221,9 @@ def result_figure(result: TCDResult, path, title: str = "") -> None:
     ax.set_ylabel("b′")
     ax.set_aspect("equal", adjustable="datalim")
     ax.legend(loc="lower right", fontsize=8)
-    ax.set_title("Image colours (grey) vs simulated locus (coloured)")
+    ax.set_title("Image colours (grey) vs simulated locus")
 
-    for axx in a[:5]:
+    for axx in a[:7]:
         axx.set_xticks([])
         axx.set_yticks([])
     fig.suptitle(title or result.settings.get("image", ""), fontsize=12)

@@ -85,10 +85,39 @@ overfull.materials = struct('m', struct('ema', 'bruggeman', 'host', 'Air', 'incl
     'fraction', 'thickness_nm / 100'));
 overfull.layers = {struct('material', 'm', 'thickness', 5)};
 badExpr = base;     badExpr.layers = {struct('material', 'aMoO3', 'thickness', 'thickness_nm +')};
-mistakes = {typo, 'unknown key'; unknownMat, 'nk_library'; overfull, 'within [0, 1]'; badExpr, 'thickness'};
+mistakes = {typo, 'unknown key'; unknownMat, 'n,k library'; overfull, 'within [0, 1]'; badExpr, 'thickness'};
 okSys = all(cellfun(@(d, t) throws(@() tcd_load_system(d), t), mistakes(:, 1), mistakes(:, 2)));
 okSys = okSys && throws(@() tcd_load_system('moo3', 'Set', {'oxide', 285}), 'not a constant');
 fails = fails + check('system file mistakes give clear errors', okSys);
+
+% 4b. reading n,k files and adding materials to the library
+tmp = tempname;  mkdir(tmp);
+write_lines(fullfile(tmp, 'ri.csv'), {'wl,n', '0.30,2.0', '0.50,2.1', '0.90,2.2', 'wl,k', '0.30,0.3', '0.90,0.1'});
+write_lines(fullfile(tmp, 'negk.csv'), {'400,2,-0.1', '800,2,0'});
+nri = tcd_materials(fullfile(tmp, 'ri.csv'), [300 500 900]);
+fails = fails + check('n,k files: refractiveindex.info n + k blocks in um', ...
+    max(abs(nri - ([2 2.1 2.2] + 1i * [0.3 0.7 / 3 0.1]))) < 1e-9);
+name = 'ZZ_test_material_m';
+target = fullfile(root, 'data', 'materials', [name '.csv']);
+try
+    tcd_add_material(name, fullfile(tmp, 'ri.csv'), 'Source', 'synthetic test data');
+    okMat = isfile(target) && any(strcmp(tcd_materials(), name));
+    def = tcd_load_system('sio2_on_si');  def = def.definition;
+    def.layers = {struct('name', 'film', 'material', name, 'thickness', 'oxide_nm')};
+    s = tcd_load_system(def);
+    okMat = okMat && s.nRows == 1001;
+    okMat = okMat && throws(@() tcd_add_material(name, fullfile(tmp, 'ri.csv'), 'Source', 'x'), 'already exists');
+    okMat = okMat && throws(@() tcd_add_material('SiO2-Franta', fullfile(tmp, 'ri.csv'), 'Source', 'x'), 'built-in');
+    okMat = okMat && throws(@() tcd_add_material('bad name', fullfile(tmp, 'ri.csv'), 'Source', 'x'), 'letters');
+    okMat = okMat && throws(@() tcd_add_material('ZZ_other', fullfile(tmp, 'negk.csv'), 'Source', 'x'), 'k must be');
+catch err
+    fprintf('    %s\n', err.message);
+    okMat = false;
+end
+if isfile(target), delete(target); end
+tcd_materials('Air', 500);  clear load_nk;     % forget the deleted material
+fails = fails + check('tcd_add_material: saved to data/materials, usable by name, mistakes refused', okMat);
+rmdir(tmp, 's');
 
 % 5. physics sanity: monolayer graphene contrast peaks at the oxide's reflectance minimum
 S = tcd_spectrum('graphene', struct('layers', [0 1]), 'Set', {'oxide_nm', 300});
@@ -138,6 +167,20 @@ delete(file);
 got = arrayfun(@(b) mode(r.classes(21:60, (b - 1) * 60 + 16:b * 60 - 15), 'all'), 1:4);
 fails = fails + check(sprintf('synthetic graphene image: layers %s', mat2str(got)), isequal(got, truth));
 
+% checks and reliability on a synthetic MoO3 image (the model is exact here)
+file = synth(moo3.XYZ(t + 1, :) / 100 * XYZ2RGB', gains, tempname);
+r = tcd_map_image(file, moo3, 'Substrate', [11 11 30 30], 'ShowFigure', false, ...
+    'Checks', {'150nm', [76 26 20 30]; '400nm', [136 26 20 30]});
+delete(file);
+c = r.checks;
+fails = fails + check(sprintf('checks: right one agrees (%.0f %%), wrong one is flagged (%.0f %%), model error from checks %.2f dE', ...
+    100 * c.within_tolerance(1), 100 * c.within_tolerance(2), r.sigma.model), ...
+    c.within_tolerance(1) > 0.9 && c.within_tolerance(2) < 0.1 && strcmp(r.sigma.model_source, 'checks') && r.sigma.model < 1.5);
+band = r.reliability(21:60, 76:105);
+rel = r.reliability(~isnan(r.reliability));
+fails = fails + check(sprintf('reliability in [0, 1], high on the exact synthetic 150 nm band (%.2f)', median(band(:), 'omitnan')), ...
+    min(rel) >= 0 && max(rel) <= 1 && median(band(:), 'omitnan') > 0.5);
+
 % 8. camera gamma from a synthetic exposure series
 tt = [0.25 0.5 1 1.5 2];
 for enc = {'linear', 'srgb'}
@@ -172,6 +215,12 @@ catch err
     tf = contains(lower(err.message), lower(text));
     if ~tf, fprintf('    unexpected message: %s\n', err.message); end
 end
+end
+
+function write_lines(file, lines)
+fid = fopen(file, 'w');
+fprintf(fid, '%s\n', lines{:});
+fclose(fid);
 end
 
 function file = synth(lin, gains, stem)
