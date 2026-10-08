@@ -1,0 +1,37 @@
+// A TiO2 / SiO2 Bragg mirror on Si: structural colour from a periodic stack.
+//
+// Shows two features the thin-film systems do not need:
+//   * a repeated group of layers ("layers" inside a layer entry, with "repeat");
+//   * a bare-substrate calibration row that is not part of the main sweep.
+// The label is the design wavelength lambda0 of the quarter-wave stack: each layer is
+// lambda0 / (4 n) thick, so the mirror reflects most strongly near lambda0. Mapping it shows
+// how the period varies across a sample (e.g. a deposition-thickness gradient).
+{
+  "name": "bragg_mirror",
+  "description": "TiO2/SiO2 quarter-wave mirror (5 pairs) on Si, design wavelength 400-700 nm",
+
+  "constants": {
+    "pairs": 5,
+    "n_high": 2.35,   // TiO2-Franta near 550 nm; only used to set the layer thicknesses
+    "n_low": 1.46     // SiO2-Franta near 550 nm
+  },
+
+  // Block 1: lambda0 = 0 gives zero-thickness layers, i.e. the bare Si substrate (row 0, the
+  // calibration row). Block 2: the mirrors themselves.
+  "sweep": [
+    {"lambda0": 0},
+    {"lambda0": {"from": 400, "to": 700, "step": 2}}
+  ],
+  "label": {"name": "lambda0", "unit": "nm", "title": "Design wavelength", "gap": 30},
+
+  "ambient": "Air",
+  "layers": [
+    {"name": "pair", "repeat": "pairs", "layers": [
+      {"name": "TiO2", "material": "TiO2-Franta", "thickness": "lambda0 / (4 * n_high)"},
+      {"name": "SiO2", "material": "SiO2-Franta", "thickness": "lambda0 / (4 * n_low)"}
+    ]}
+  ],
+  "substrate": "Si-Franta",
+
+  "optics": {"illuminant": "D65", "na": 0}
+}

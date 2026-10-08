@@ -1,15 +1,24 @@
 """Transfer-matrix reflectance of a planar multilayer.
 
-Same formalism and sign conventions as the McGehee-group TransferMatrix.m
-(Pettersson et al., J. Appl. Phys. 86, 487 (1999)) used in TransferMatrix_Updated/:
-interface matrix I = [[1, r], [r, 1]] / t, layer matrix L = diag(exp(-i xi d), exp(i xi d)),
-S = I_01 L_1 I_12 ... L_{N-1} I_{N-1,N}, r = S21 / S11. The first medium (air) is
-the incidence side and the last medium (Si) is semi-infinite.
+In every layer j the field is a forward and a backward plane wave. Two 2x2 matrices relate the
+amplitudes on either side of an interface or a layer (Pettersson, Roman & Inganas,
+J. Appl. Phys. 86, 487 (1999), as in the McGehee-group TransferMatrix.m):
 
-At normal incidence this reproduces the MATLAB output to machine precision
-(see tests/validate_against_matlab.py). ``reflectance_na`` adds the oblique s/p
-calculation integrated over the objective's numerical aperture, which the
-MATLAB pipeline did not include.
+    interface j -> k : I_jk = [[1, r_jk], [r_jk, 1]] / t_jk     (Fresnel r, t)
+    layer j          : L_j  = diag(exp(-i xi_j d_j), exp(+i xi_j d_j)),  xi_j = 2 pi n_j cos(theta_j) / lambda
+    whole stack      : S = I_12 L_2 I_23 ... L_(M-1) I_(M-1,M)
+    reflectance      : R = |S21 / S11|^2
+
+Medium 1 (air) is where the light comes from and medium M (the substrate) is semi-infinite;
+n = n + ik with k > 0 for absorption. Everything is vectorised over wavelength.
+
+``reflectance`` is normal incidence and reproduces the old TransferMatrix_multiple.m /
+TransferMatrix_packing.m output to the precision of their saved spectra (tests/fixtures/, checked
+in python/tests/test_pipeline.py). ``reflectance_oblique``
+adds the angle (Snell: n_j sin theta_j = const, s and p Fresnel coefficients) and
+``reflectance_na`` averages s and p over the illumination cone of an objective of numerical
+aperture NA. ``matlab/tcd_tmm.m`` is the MATLAB twin, with a longer explanation of the method
+and of what changed from the original code.
 """
 from __future__ import annotations
 

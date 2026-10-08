@@ -1,0 +1,60 @@
+// Layers of 300 nm polystyrene beads on 100 nm thermal SiO2 on Si ("slab" model).
+//
+// Builds refs/ps_D65.csv:
+//   python python/run_tcd.py build-ref --system ps
+//   matlab:  tcd_build_reference('ps', 'Out', '../refs/ps_D65.csv')
+// Other beads or oxide:  --set bead_nm=500 --set oxide_nm=285
+//
+// Model: each bead layer is a slab one bead diameter thick, filled with polystyrene at the
+// fraction of a hexagonal monolayer, f = pi / (3 sqrt 3) = 0.6046, and air elsewhere
+// (Maxwell-Garnett). The top layer may be incomplete: its fill is f * packing.
+// systems/ps_hcp.jsonc is the close-packed alternative (layers nest into each other).
+{
+  "name": "ps",
+  "description": "PS bead layers (slab model) on SiO2 / Si",
+
+  "constants": {
+    "bead_nm": 300,
+    "oxide_nm": 100,
+    "max_layers": 5,
+    "packing_step": 0.01,
+    "f_hex": "pi / (3 * sqrt(3))"   // constants may be expressions of earlier constants
+  },
+
+  // Mixtures used by the layers below. "host" fills the space between the inclusions.
+  "materials": {
+    "bead_layer": {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_hex"},
+    "top_layer":  {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_hex * packing"}
+  },
+
+  // A list of blocks: the bare substrate first, then every layer count with every packing
+  // of its top layer. Within a block the first parameter varies slowest.
+  "sweep": [
+    {"layers": 0, "packing": 0},
+    {"layers": {"from": 1, "to": "max_layers", "step": 1},
+     "packing": {"from": "packing_step", "to": 1, "step": "packing_step"}}
+  ],
+
+  // Effective layer number: 1.0 = one complete layer, 1.5 = one complete layer plus a
+  // half-covered second layer. "classes" rounds it to whole layers for the layer map.
+  "label": {
+    "name": "eff_layers",
+    "value": "max(layers - 1 + packing, 0)",
+    "unit": "layers",
+    "title": "Layer number",
+    "classes": true,
+    "class_name": "{}L",
+    "zero_name": "substrate"
+  },
+
+  "ambient": "Air",
+  "layers": [
+    // "repeat" can be any expression; 0 removes the layer. min(layers, 1) is 1 except on bare substrate.
+    {"name": "top layer",   "material": "top_layer",  "thickness": "bead_nm", "repeat": "min(layers, 1)"},
+    {"name": "full layers", "material": "bead_layer", "thickness": "bead_nm", "repeat": "max(layers - 1, 0)"},
+    {"name": "oxide",       "material": "SiO2-Franta", "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",
+
+  "optics": {"illuminant": "D65", "na": 0}
+}

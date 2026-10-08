@@ -1,0 +1,57 @@
+// Layers of 300 nm polystyrene beads on 100 nm SiO2 / Si, close-packed ("hcp") model.
+//
+// Unlike systems/ps.jsonc, the beads of each layer sit in the hollows of the layer below,
+// so layers above the first are only bead_nm * sqrt(2/3) apart and are filled at the bulk
+// close-packed fraction pi / (3 sqrt 2) = 0.7405. The first layer stays a one-bead-thick slab
+// at the monolayer fraction 0.6046. Compare the two models on your images: the one whose
+// simulated colours sit closer to the micrograph colours (smaller residual) fits better.
+{
+  "name": "ps_hcp",
+  "description": "PS bead layers (close-packed model) on SiO2 / Si",
+
+  "constants": {
+    "bead_nm": 300,
+    "oxide_nm": 100,
+    "max_layers": 5,
+    "packing_step": 0.01,
+    "f_hex": "pi / (3 * sqrt(3))",      // monolayer slab
+    "f_cp": "pi / (3 * sqrt(2))",       // bulk close packing
+    "pitch_nm": "bead_nm * sqrt(2 / 3)" // spacing of nested layers
+  },
+
+  "materials": {
+    "first_layer":     {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_hex"},
+    "first_layer_top": {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_hex * packing"},
+    "nested_layer":    {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_cp"},
+    "nested_top":      {"ema": "maxwell-garnett", "host": "Air", "inclusion": "PS-beads", "fraction": "f_cp * packing"}
+  },
+
+  "sweep": [
+    {"layers": 0, "packing": 0},
+    {"layers": {"from": 1, "to": "max_layers", "step": 1},
+     "packing": {"from": "packing_step", "to": 1, "step": "packing_step"}}
+  ],
+
+  "label": {
+    "name": "eff_layers",
+    "value": "max(layers - 1 + packing, 0)",
+    "unit": "layers",
+    "title": "Layer number",
+    "classes": true,
+    "class_name": "{}L",
+    "zero_name": "substrate"
+  },
+
+  "ambient": "Air",
+  // Comparisons give 1 (true) or 0 (false), so they work as on/off switches for "repeat".
+  "layers": [
+    {"name": "top layer (nested)",   "material": "nested_top",      "thickness": "pitch_nm", "repeat": "layers >= 2"},
+    {"name": "top layer (first)",    "material": "first_layer_top", "thickness": "bead_nm",  "repeat": "layers == 1"},
+    {"name": "full nested layers",   "material": "nested_layer",    "thickness": "pitch_nm", "repeat": "max(layers - 2, 0)"},
+    {"name": "full first layer",     "material": "first_layer",     "thickness": "bead_nm",  "repeat": "layers >= 2"},
+    {"name": "oxide",                "material": "SiO2-Franta",     "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",
+
+  "optics": {"illuminant": "D65", "na": 0}
+}

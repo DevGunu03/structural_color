@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "name": "sio2_on_si",
+  "label": {
+    "name": "oxide_nm",
+    "unit": "nm",
+    "title": "SiO2 thickness",
+    "classes": false,
+    "class_name": "{}",
+    "zero_name": "",
+    "gap": 66.7
+  },
+  "description": "Thermal SiO2 film on Si, thickness 0-1000 nm",
+  "stack": "Air | oxide: SiO2-Franta, oxide_nm nm | Si-Franta",
+  "illuminant": "D65",
+  "NA": 0.0,
+  "na_weighting": "uniform",
+  "constants": {
+    "t_max": 1000.0,
+    "t_step": 1.0
+  },
+  "system_file": "systems/sio2_on_si.jsonc",
+  "created_by": "python tcd (python/tcd/reference.py)",
+  "definition": {
+    "name": "sio2_on_si",
+    "description": "Thermal SiO2 film on Si, thickness 0-1000 nm",
+    "constants": {
+      "t_max": 1000,
+      "t_step": 1
+    },
+    "sweep": {
+      "oxide_nm": {
+        "from": 0,
+        "to": "t_max",
+        "step": "t_step"
+      }
+    },
+    "label": {
+      "name": "oxide_nm",
+      "unit": "nm",
+      "title": "SiO2 thickness"
+    },
+    "ambient": "Air",
+    "layers": [
+      {
+        "name": "oxide",
+        "material": "SiO2-Franta",
+        "thickness": "oxide_nm"
+      }
+    ],
+    "substrate": "Si-Franta",
+    "optics": {
+      "illuminant": "D65",
+      "na": 0
+    }
+  },
+  "columns": [
+    "oxide_nm",
+    "X",
+    "Y",
+    "Z",
+    "Jp",
+    "ap",
+    "bp",
+    "L",
+    "a",
+    "b",
+    "sR",
+    "sG",
+    "sB",
+    "dE_substrate"
+  ]
+}

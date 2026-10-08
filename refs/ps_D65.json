@@ -1,10 +1,106 @@
 {
-  "stack": "Air | PS-beads layers (d=300.0 nm, model=slab) | SiO2-Franta 100.0 nm | Si-Franta",
+  "format": 1,
+  "name": "ps",
+  "label": {
+    "name": "eff_layers",
+    "unit": "layers",
+    "title": "Layer number",
+    "classes": true,
+    "class_name": "{}L",
+    "zero_name": "substrate",
+    "gap": 0.5
+  },
+  "description": "PS bead layers (slab model) on SiO2 / Si",
+  "stack": "Air | top layer: top_layer, 300 nm (repeat min(layers, 1)) | full layers: bead_layer, 300 nm (repeat max(layers - 1, 0)) | oxide: SiO2-Franta, 100 nm | Si-Franta",
   "illuminant": "D65",
   "NA": 0.0,
-  "max_layers": 5,
-  "packing_step": 0.01,
-  "system": "PS",
+  "na_weighting": "uniform",
+  "constants": {
+    "bead_nm": 300.0,
+    "oxide_nm": 100.0,
+    "max_layers": 5.0,
+    "packing_step": 0.01,
+    "f_hex": 0.6045997880780726
+  },
+  "system_file": "systems/ps.jsonc",
+  "created_by": "python tcd (python/tcd/reference.py)",
+  "definition": {
+    "name": "ps",
+    "description": "PS bead layers (slab model) on SiO2 / Si",
+    "constants": {
+      "bead_nm": 300,
+      "oxide_nm": 100,
+      "max_layers": 5,
+      "packing_step": 0.01,
+      "f_hex": "pi / (3 * sqrt(3))"
+    },
+    "materials": {
+      "bead_layer": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_hex"
+      },
+      "top_layer": {
+        "ema": "maxwell-garnett",
+        "host": "Air",
+        "inclusion": "PS-beads",
+        "fraction": "f_hex * packing"
+      }
+    },
+    "sweep": [
+      {
+        "layers": 0,
+        "packing": 0
+      },
+      {
+        "layers": {
+          "from": 1,
+          "to": "max_layers",
+          "step": 1
+        },
+        "packing": {
+          "from": "packing_step",
+          "to": 1,
+          "step": "packing_step"
+        }
+      }
+    ],
+    "label": {
+      "name": "eff_layers",
+      "value": "max(layers - 1 + packing, 0)",
+      "unit": "layers",
+      "title": "Layer number",
+      "classes": true,
+      "class_name": "{}L",
+      "zero_name": "substrate"
+    },
+    "ambient": "Air",
+    "layers": [
+      {
+        "name": "top layer",
+        "material": "top_layer",
+        "thickness": "bead_nm",
+        "repeat": "min(layers, 1)"
+      },
+      {
+        "name": "full layers",
+        "material": "bead_layer",
+        "thickness": "bead_nm",
+        "repeat": "max(layers - 1, 0)"
+      },
+      {
+        "name": "oxide",
+        "material": "SiO2-Franta",
+        "thickness": "oxide_nm"
+      }
+    ],
+    "substrate": "Si-Franta",
+    "optics": {
+      "illuminant": "D65",
+      "na": 0
+    }
+  },
   "columns": [
     "layers",
     "packing",

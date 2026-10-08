@@ -1,0 +1,36 @@
+// Exfoliated alpha-MoO3 flakes on 100 nm thermal SiO2 on Si.
+//
+// Builds refs/moo3_D65.csv:
+//   python python/run_tcd.py build-ref --system moo3
+//   matlab:  tcd_build_reference('moo3', 'Out', '../refs/moo3_D65.csv')
+// Different oxide:  --set oxide_nm=285   /   'Set', {'oxide_nm', 285}
+{
+  "name": "moo3",
+  "description": "alpha-MoO3 flakes on SiO2 / Si, thickness 0-600 nm",
+
+  // Fixed numbers. Any of them can be changed when building, without editing this file.
+  "constants": {
+    "oxide_nm": 100,   // thermal oxide thickness
+    "t_max": 600,      // thickest flake considered (colours repeat about every 130 nm)
+    "t_step": 1        // thickness resolution of the reference
+  },
+
+  // One candidate structure per flake thickness. The first row (0 nm) is the bare substrate:
+  // the region you mark as "substrate" in a micrograph is calibrated to this row's colour.
+  "sweep": {
+    "thickness_nm": {"from": 0, "to": "t_max", "step": "t_step"}
+  },
+
+  // The number the map reports for each pixel.
+  "label": {"name": "thickness_nm", "unit": "nm", "title": "MoO3 thickness"},
+
+  // Light comes from the ambient side; layers are listed from the top (light side) down.
+  "ambient": "Air",
+  "layers": [
+    {"name": "flake", "material": "aMoO3", "thickness": "thickness_nm"},
+    {"name": "oxide", "material": "SiO2-Franta", "thickness": "oxide_nm"}
+  ],
+  "substrate": "Si-Franta",   // semi-infinite
+
+  "optics": {"illuminant": "D65", "na": 0}
+}
